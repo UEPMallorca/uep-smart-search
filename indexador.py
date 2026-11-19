@@ -15,6 +15,13 @@ def netejar_html(text_brut):
     sense_etiquetes = re.sub(r'<[^>]+>', '', text_brut)
     return html.unescape(sense_etiquetes).strip()
 
+# Capçalera de navegador per evitar bloquejos tant a WordPress com a la taquilla
+headers_chrome = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Accept-Language": "ca-ES,ca;q=0.9,es;q=0.8",
+    "Accept": "application/json, text/html, */*"
+}
+
 tots_els_items = []
 
 # ==========================================
@@ -25,8 +32,9 @@ print(f"1/3. Descarregant {PAGINES_A_DESCARREGAR} pàgines de notícies d'UEP! M
 
 for pagina in range(1, PAGINES_A_DESCARREGAR + 1):
     url = f"https://uepmallorca.app/wp-json/wp/v2/posts?per_page=100&page={pagina}"
-    resposta = requests.get(url)
+    resposta = requests.get(url, headers=headers_chrome, timeout=20)
     if resposta.status_code != 200:
+        print(f"   Avís: error en descarregar pàgina {pagina} de WP (codi {resposta.status_code})")
         break
         
     for article in resposta.json():
@@ -43,19 +51,18 @@ for pagina in range(1, PAGINES_A_DESCARREGAR + 1):
             "enllac": enllac
         })
 
-print(f"   -> {len(tots_els_items)} notícies en català recollides.")
+noticies_trobades = len(tots_els_items)
+print(f"   -> {noticies_trobades} notícies en català recollides.")
+
+# ASSEGURANÇA ANTI-ESBORRAT: Si no entren notícies, aturam el procés per no esborrar les que ja tenim
+if noticies_trobades == 0:
+    raise RuntimeError("ERROR: No s'ha pogut descarregar cap notícia de WordPress. Procés aturat per seguretat.")
 
 # ==========================================
 # BLOC B: TAQUILLA (entradas.uepmallorca.app/ca)
 # ==========================================
 print("2/3. Descarregant tota la cartellera de entradas.uepmallorca.app/ca...")
 
-headers_chrome = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-    "Accept-Language": "ca-ES,ca;q=0.9,es;q=0.8"
-}
-
-# Llegim primer les categories específiques perquè cada esdeveniment quedi ben etiquetat
 fonts_entrades = [
     ("Teatre", "https://entradas.uepmallorca.app/ca/tag/teatro"),
     ("Concerts", "https://entradas.uepmallorca.app/ca/tag/conciertos"),
@@ -70,7 +77,7 @@ enllacos_vistos = set()
 entrades_trobades = 0
 
 for categoria, url_cat in fonts_entrades:
-    r = requests.get(url_cat, headers=headers_chrome)
+    r = requests.get(url_cat, headers=headers_chrome, timeout=20)
     if r.status_code != 200:
         print(f"   Avís: no s'ha pogut llegir {categoria} (codi {r.status_code})")
         continue
