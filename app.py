@@ -62,10 +62,16 @@ def cercar_articles_semantics(pregunta, max_noticies=10, max_entrades=8, llindar
             
     return noticies_sel + entrades_sel
 
-# 5. Interfície de cerca
-pregunta = st.text_input("Què vols saber? (Ex: concerts a Palma, teatre aquest cap de setmana, exposicions...)")
+# 5. Interfície de cerca (amb suport per a búsquedes directes des d'uepmallorca.app)
+pregunta_url = st.query_params.get("q", "")
+pregunta = st.text_input(
+    "Què vols saber? (Ex: concerts a Palma, teatre aquest cap de setmana, exposicions...)",
+    value=pregunta_url
+)
 
-if st.button("Cercar"):
+cercar_clic = st.button("Cercar")
+
+if cercar_clic or pregunta_url:
     if pregunta:
         with st.spinner("Cercant a l'hemeroteca i a la taquilla..."):
             top_articles = cercar_articles_semantics(pregunta, max_noticies=10, max_entrades=8, llindar_minim=0.18)
