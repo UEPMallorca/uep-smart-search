@@ -27,8 +27,8 @@ def carregar_hemeroteca():
 
 articles, matriu_vectors = carregar_hemeroteca()
 
-# 4. Cerca semàntica equilibrada (sempre combina notícies i entrades)
-def cercar_articles_semantics(pregunta, top_noticies=7, top_entrades=5):
+# 4. Cerca semàntica pura (sense forçar entrades irrellevants)
+def cercar_articles_semantics(pregunta, top_k=10, llindar_minim=0.32):
     resposta_emb = client.embeddings.create(
         model="text-embedding-3-small",
         input=pregunta
@@ -41,24 +41,12 @@ def cercar_articles_semantics(pregunta, top_noticies=7, top_entrades=5):
     
     indexs_ordenats = np.argsort(similituds)[::-1]
     
-    noticies_sel = []
-    entrades_sel = []
-    
-    for idx in indexs_ordenats:
-        art = articles[idx]
+    resultats = []
+    for idx in indexs_ordenats[:top_k]:
         puntuacio = float(similituds[idx])
-        if art.get("tipus") == "entrada":
-            if len(entrades_sel) < top_entrades:
-                entrades_sel.append((art, puntuacio))
-        else:
-            if len(noticies_sel) < top_noticies:
-                noticies_sel.append((art, puntuacio))
-        
-        if len(noticies_sel) >= top_noticies and len(entrades_sel) >= top_entrades:
-            break
-            
-    # Retornam primer les entrades i després les notícies
-    return entrades_sel + noticies_sel
+        if puntuacio >= llindar_minim:
+            resultats.append((articles[idx], puntuacio))
+    return resultats
 
 # 5. Interfície de cerca
 pregunta = st.text_input("Què vols saber? (Ex: concerts a Palma, teatre aquest cap de setmana, exposicions...)")
@@ -66,49 +54,53 @@ pregunta = st.text_input("Què vols saber? (Ex: concerts a Palma, teatre aquest 
 if st.button("Cercar"):
     if pregunta:
         with st.spinner("Cercant a l'hemeroteca i a la taquilla..."):
-            top_articles = cercar_articles_semantics(pregunta, top_noticies=7, top_entrades=5)
+            top_articles = cercar_articles_semantics(pregunta, top_k=10, llindar_minim=0.32)
             data_avui = datetime.now().strftime("%d/%m/%Y")
             
-            context_articles = ""
-            for art, puntuacio in top_articles:
-                etiqueta = "🎟️ VENDA D'ENTRADES" if art.get("tipus") == "entrada" else "📰 NOTÍCIA"
-                context_articles += (
-                    f"- [{etiqueta}] Data: {art['data']}\n"
-                    f"  Títol: {art['titol']}\n"
-                    f"  Resum: {art['resum']}\n"
-                    f"  Enllaç: {art['enllac']}\n\n"
-                )
-            
-            instruccions_sistema = f"""
-            Ets l'assistent cultural intel·ligent del diari UEP! Mallorca.
-            La data d'avui és: {data_avui}.
-            
-            Respon a la pregunta de l'usuari utilitzant ÚNICAMENT els següents elements de la nostra hemeroteca i taquilla:
-            
-            {context_articles}
-            
-            Normes estrictes:
-            1. Respon SEMPRE en català, amb un to clar, pràctic i periodístic.
-            2. Si l'usuari fa una pregunta general o d'agenda (com "concerts a Palma", "teatre aquest cap de setmana", "què fer a Mallorca"), ofereix una llista clara i ordenada amb les millors opcions disponibles, prioritzant els esdeveniments pròxims i els de [🎟️ VENDA D'ENTRADES].
-            3. Tingues en compte la data d'avui ({data_avui}): no recomanis esdeveniments que ja han passat com si fossin futurs. Si només tens notícies antigues sobre el tema, aclareix-ho.
-            4. Si cap dels elements respon a la pregunta, digues clarament que no tens aquesta informació. NO inventis mai dades, dates, preus ni recintes.
-            5. Cita sempre els enllaços rellevants de forma natural, destacant clarament l'enllaç directe de compra quan es tracti de [🎟️ VENDA D'ENTRADES].
-            """
-            
-            resposta = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": instruccions_sistema},
-                    {"role": "user", "content": pregunta}
-                ]
-            )
-            
-            st.success("Resposta trobada!")
-            st.write(resposta.choices[0].message.content)
-            
-            with st.expander("🔍 Veure les fonts seleccionades (Taquilla + Hemeroteca)"):
+            if not top_articles:
+                st.info("No hem trobat cap notícia ni entrada relacionada amb aquesta cerca.")
+            else:
+                context_articles = ""
                 for art, puntuacio in top_articles:
-                    icona = "🎟️" if art.get("tipus") == "entrada" else "📰"
-                    st.markdown(f"{icona} **{art['titol']}** ({art['data']}) — *Similitud: {puntuacio:.2f}*  \n{art['enllac']}")
+                    etiqueta = "🎟️ VENDA D'ENTRADES" if art.get("tipus") == "entrada" else "📰 NOTÍCIA"
+                    context_articles += (
+                        f"- [{etiqueta}] Data: {art['data']}\n"
+                        f"  Títol: {art['titol']}\n"
+                        f"  Resum: {art['resum']}\n"
+                        f"  Enllaç: {art['enllac']}\n\n"
+                    )
+                
+                instruccions_sistema = f"""
+                Ets l'assistent cultural intel·ligent del diari UEP! Mallorca.
+                La data d'avui és: {data_avui}.
+                
+                Respon a la pregunta de l'usuari utilitzant ÚNICAMENT els elements pertinents d'aquesta llista:
+                
+                {context_articles}
+                
+                Normes estrictes:
+                1. Respon SEMPRE en català, amb un to clar, pràctic i periodístic.
+                2. FILTRE ESTRICTE DE TEMA I LLOC: Inclou NOMÉS els elements que coincideixin realment amb el que demana l'usuari. Si demana "Teatre a Palma", NO incloguis concerts, xerrades ni esdeveniments d'altres municipis com Manacor, encara que apareguin a la llista. Descarta tot el que no encaixi.
+                3. EQUILIBRI: Tracta notícies i entrades per igual segons la seva rellevància. No prioritzis una entrada si una notícia respon millor.
+                4. Tingues en compte la data d'avui ({data_avui}): no recomanis esdeveniments ja passats com si fossin futurs.
+                5. Si cap element encaixa realment amb el tema i el lloc demanats, digues clarament que no tens aquesta informació ara mateix. NO omplis la resposta amb temes diferents ni inventis dades.
+                6. Cita els enllaços de forma natural (i indica si és per llegir la notícia o per comprar entrades).
+                """
+                
+                resposta = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": instruccions_sistema},
+                        {"role": "user", "content": pregunta}
+                    ]
+                )
+                
+                st.success("Resposta trobada!")
+                st.write(resposta.choices[0].message.content)
+                
+                with st.expander("🔍 Veure les fonts analitzades"):
+                    for art, puntuacio in top_articles:
+                        icona = "🎟️" if art.get("tipus") == "entrada" else "📰"
+                        st.markdown(f"{icona} **{art['titol']}** ({art['data']}) — *Similitud: {puntuacio:.2f}*  \n{art['enllac']}")
     else:
         st.warning("Escriu una pregunta abans de fer clic.")
