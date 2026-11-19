@@ -27,8 +27,8 @@ def carregar_hemeroteca():
 
 articles, matriu_vectors = carregar_hemeroteca()
 
-# 4. Cerca equilibrada (5 notícies + fins a 8 entrades)
-def cercar_articles_semantics(pregunta, max_noticies=5, max_entrades=8, llindar_minim=0.18):
+# 4. Cerca equilibrada (fins a 10 notícies + fins a 8 entrades)
+def cercar_articles_semantics(pregunta, max_noticies=10, max_entrades=8, llindar_minim=0.18):
     resposta_emb = client.embeddings.create(
         model="text-embedding-3-small",
         input=pregunta
@@ -68,7 +68,7 @@ pregunta = st.text_input("Què vols saber? (Ex: concerts a Palma, teatre aquest 
 if st.button("Cercar"):
     if pregunta:
         with st.spinner("Cercant a l'hemeroteca i a la taquilla..."):
-            top_articles = cercar_articles_semantics(pregunta, max_noticies=5, max_entrades=8, llindar_minim=0.18)
+            top_articles = cercar_articles_semantics(pregunta, max_noticies=10, max_entrades=8, llindar_minim=0.18)
             data_avui = datetime.now().strftime("%d/%m/%Y")
             
             if not top_articles:
@@ -93,7 +93,7 @@ if st.button("Cercar"):
                 
                 instruccions_sistema = f"""
                 Ets l'assistent cultural intel·ligent del diari UEP! Mallorca.
-                La data d'avui és: {data_avui}.
+                La data d'AVUI és: {data_avui}.
                 
                 Respon a la pregunta de l'usuari utilitzant ÚNICAMENT els elements pertinents d'aquesta llista:
                 
@@ -101,11 +101,14 @@ if st.button("Cercar"):
                 
                 Normes estrictes:
                 1. Respon SEMPRE en català, amb un to clar, pràctic i periodístic.
-                2. NO CONFONGUIS DATA DE PUBLICACIÓ AMB DATA DE L'ESDEVENIMENT: En les notícies, la data entre parèntesis "(Publicada el ...)" és només quan es va publicar l'article, NO quan acaba l'esdeveniment. Llegeix el resum: si una mostra o cicle dura fins a una data futura (ex: fins al 13 de desembre), ESTÀ ACTIU i l'has d'incloure! Només descarta notícies d'esdeveniments que el resum indiqui clarament que ja han acabat abans del {data_avui}.
-                3. RIGOR TEMÀTIC: Inclou només notícies el tema principal de les quals sigui el que demana l'usuari. No incloguis notícies genèriques (com programes generals de Nadal) si l'usuari ha demanat específicament "Teatre".
-                4. RIGOR GEOGRÀFIC (PROHIBIT INVENTAR MUNICIPIS): Si l'usuari demana un municipi concret (ex: Palma), inclou NOMÉS els elements on aquest municipi aparegui explícitament al títol o resum. NO assumeixis ni afegeixis mai "Palma" a un recinte si el text original no ho diu.
+                2. FILTRE ESTRICTE DE DATES (MOLT IMPORTANT): Compara sempre les dates reals de l'esdeveniment que surten al resum amb la data d'AVUI ({data_avui}).
+                   - IGNORA paraules relatives escrites en el passat com "els propers dies", "aquest cap de setmana" o "demà" si el dia concret ja és anterior a {data_avui}.
+                   - Si una funció va ser abans d'avui (per exemple, del 7 al 9 de novembre o el 14 i 15 de novembre quan avui és {data_avui}), DESCARTA-LA completament.
+                   - En canvi, la data entre parèntesis "(Publicada el ...)" és només quan es va publicar l'article: si el resum diu que un cicle o obra dura fins a una data futura o és a partir d'avui, INCLOU-LA.
+                3. RIGOR TEMÀTIC: Inclou només notícies el tema principal de les quals sigui el que demana l'usuari. Descarta notícies genèriques que només mencionin el tema de passada.
+                4. RIGOR GEOGRÀFIC: Si l'usuari demana un municipi concret (ex: Palma), inclou els elements d'aquest municipi (incloent espais coneguts de Palma com Teatre del Mar, Teatre Principal, Teatre Sans, Espai el Tub, etc.). NO incloguis esdeveniments d'altres municipis ni inventis la ubicació si no consta.
                 5. ENTRADES AMB "DIVERSES DATES": Inclou sempre les entrades que diguin "Diverses dates" si coincideixen amb el tema i el municipi.
-                6. FORMAT NET: Separa la resposta en dos blocs si hi ha contingut per a tots dos: **Actualitat i notícies (📰)** i **Entrades disponibles a la taquilla (🎟️)**. Fes servir un sol punt de llista per cada element (amb el títol en negreta, una breu descripció o dades i l'enllaç al final).
+                6. FORMAT NET I CONCÍS: Separa la resposta en dos blocs si hi ha contingut per a tots dos: **Actualitat i notícies (📰)** i **Entrades disponibles a la taquilla (🎟️)**. Utilitza UN SOL punt de llista per cada element (títol en negreta, dades essencials i l'enllaç al final). No repeteixis frases genèriques com "Esdeveniment amb venda d'entrades disponible...".
                 """
                 
                 resposta = client.chat.completions.create(
