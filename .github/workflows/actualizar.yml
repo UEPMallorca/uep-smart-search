@@ -1,0 +1,36 @@
+name: Actualizar Hemeroteca y Taquilla UEP
+
+on:
+  schedule:
+    - cron: '0 7,15 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar librerías necesarias
+        run: pip install requests beautifulsoup4 python-dotenv openai
+
+      - name: Ejecutar indexador.py
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python indexador.py
+
+      - name: Guardar y subir hemeroteca_vectors.json
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action UEP"
+          git add hemeroteca_vectors.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Actualización automática de hemeroteca y taquilla" && git push)
