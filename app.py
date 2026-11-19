@@ -27,8 +27,8 @@ def carregar_hemeroteca():
 
 articles, matriu_vectors = carregar_hemeroteca()
 
-# 4. Cerca equilibrada AMB filtre de qualitat (ni tapa la taquilla ni posa farciment)
-def cercar_articles_semantics(pregunta, max_noticies=5, max_entrades=5, llindar_minim=0.33):
+# 4. Cerca equilibrada AMB filtre de qualitat ajustat (5 notícies + fins a 8 entrades)
+def cercar_articles_semantics(pregunta, max_noticies=5, max_entrades=8, llindar_minim=0.18):
     resposta_emb = client.embeddings.create(
         model="text-embedding-3-small",
         input=pregunta
@@ -46,7 +46,7 @@ def cercar_articles_semantics(pregunta, max_noticies=5, max_entrades=5, llindar_
     
     for idx in indexs_ordenats:
         puntuacio = float(similituds[idx])
-        # Si ja baixam del llindar mínim, aturam la cerca (evita farciment irrellevant)
+        # Si baixam del llindar mínim, aturam la cerca
         if puntuacio < llindar_minim:
             break
             
@@ -69,7 +69,7 @@ pregunta = st.text_input("Què vols saber? (Ex: concerts a Palma, teatre aquest 
 if st.button("Cercar"):
     if pregunta:
         with st.spinner("Cercant a l'hemeroteca i a la taquilla..."):
-            top_articles = cercar_articles_semantics(pregunta, max_noticies=5, max_entrades=5, llindar_minim=0.33)
+            top_articles = cercar_articles_semantics(pregunta, max_noticies=5, max_entrades=8, llindar_minim=0.18)
             data_avui = datetime.now().strftime("%d/%m/%Y")
             
             if not top_articles:
