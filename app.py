@@ -27,7 +27,7 @@ def carregar_hemeroteca():
 
 articles, matriu_vectors = carregar_hemeroteca()
 
-# 4. Cerca equilibrada AMB filtre de qualitat ajustat (5 notícies + fins a 8 entrades)
+# 4. Cerca equilibrada (5 notícies + fins a 8 entrades)
 def cercar_articles_semantics(pregunta, max_noticies=5, max_entrades=8, llindar_minim=0.18):
     resposta_emb = client.embeddings.create(
         model="text-embedding-3-small",
@@ -46,7 +46,6 @@ def cercar_articles_semantics(pregunta, max_noticies=5, max_entrades=8, llindar_
     
     for idx in indexs_ordenats:
         puntuacio = float(similituds[idx])
-        # Si baixam del llindar mínim, aturam la cerca
         if puntuacio < llindar_minim:
             break
             
@@ -77,13 +76,20 @@ if st.button("Cercar"):
             else:
                 context_articles = ""
                 for art, puntuacio in top_articles:
-                    etiqueta = "🎟️ VENDA D'ENTRADES" if art.get("tipus") == "entrada" else "📰 NOTÍCIA"
-                    context_articles += (
-                        f"- [{etiqueta}] Data: {art['data']}\n"
-                        f"  Títol: {art['titol']}\n"
-                        f"  Resum: {art['resum']}\n"
-                        f"  Enllaç: {art['enllac']}\n\n"
-                    )
+                    if art.get("tipus") == "entrada":
+                        context_articles += (
+                            f"- [🎟️ VENDA D'ENTRADES]\n"
+                            f"  Títol i dades: {art['titol']}\n"
+                            f"  Detalls: {art['resum']}\n"
+                            f"  Enllaç: {art['enllac']}\n\n"
+                        )
+                    else:
+                        context_articles += (
+                            f"- [📰 NOTÍCIA] (Publicada el {art['data']})\n"
+                            f"  Títol: {art['titol']}\n"
+                            f"  Resum: {art['resum']}\n"
+                            f"  Enllaç: {art['enllac']}\n\n"
+                        )
                 
                 instruccions_sistema = f"""
                 Ets l'assistent cultural intel·ligent del diari UEP! Mallorca.
@@ -95,11 +101,11 @@ if st.button("Cercar"):
                 
                 Normes estrictes:
                 1. Respon SEMPRE en català, amb un to clar, pràctic i periodístic.
-                2. FILTRE ESTRICTE DE TEMA I LLOC: Inclou NOMÉS els elements que coincideixin realment amb el tema i el municipi demanats. Si l'usuari demana "Teatre a Palma", descarta esdeveniments d'altres municipis (com Inca, Calvià o Manacor) i altres disciplines.
-                3. ORGANITZACIÓ CLARA: Si hi ha tant notícies com entrades pertinents, separa la resposta en dos blocs curts: **Actualitat i notícies** (📰) i **Entrades disponibles a la taquilla** (🎟️).
-                4. DATA D'AVUI ({data_avui}): No recomanis funcions que ja han passat (anteriors a avui) com si fossin opcions actuals.
-                5. Si cap element encaixa realment, digues-ho clarament. NO inventis mai dades.
-                6. Cita els enllaços de forma natural.
+                2. NO CONFONGUIS DATA DE PUBLICACIÓ AMB DATA DE L'ESDEVENIMENT: En les notícies, la data entre parèntesis "(Publicada el ...)" és només quan es va publicar l'article, NO quan acaba l'esdeveniment. Llegeix el resum: si una mostra o cicle dura fins a una data futura (ex: fins al 13 de desembre), ESTÀ ACTIU i l'has d'incloure! Només descarta notícies d'esdeveniments que el resum indiqui clarament que ja han acabat abans del {data_avui}.
+                3. RIGOR TEMÀTIC: Inclou només notícies el tema principal de les quals sigui el que demana l'usuari. No incloguis notícies genèriques (com programes generals de Nadal) si l'usuari ha demanat específicament "Teatre".
+                4. RIGOR GEOGRÀFIC (PROHIBIT INVENTAR MUNICIPIS): Si l'usuari demana un municipi concret (ex: Palma), inclou NOMÉS els elements on aquest municipi aparegui explícitament al títol o resum. NO assumeixis ni afegeixis mai "Palma" a un recinte si el text original no ho diu.
+                5. ENTRADES AMB "DIVERSES DATES": Inclou sempre les entrades que diguin "Diverses dates" si coincideixen amb el tema i el municipi.
+                6. FORMAT NET: Separa la resposta en dos blocs si hi ha contingut per a tots dos: **Actualitat i notícies (📰)** i **Entrades disponibles a la taquilla (🎟️)**. Fes servir un sol punt de llista per cada element (amb el títol en negreta, una breu descripció o dades i l'enllaç al final).
                 """
                 
                 resposta = client.chat.completions.create(
