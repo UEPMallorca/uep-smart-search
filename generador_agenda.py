@@ -3,10 +3,10 @@ import re
 import json
 import argparse
 import requests
+from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from openai import OpenAI
 
-# 1. Filtro estricto para excluir Eivissa, Formentera y Menorca
 PALABRAS_EXCLUIDAS = [
     "eivissa", "ibiza", "formentera", "menorca",
     "maó", "mahón", "mahon", "ciutadella", "alaior", "es mercadal",
@@ -15,99 +15,149 @@ PALABRAS_EXCLUIDAS = [
     "sant josep de sa talaia", "sant joan de labritja"
 ]
 
+MESOS_CAT = {
+    1: "gener", 2: "febrer", 3: "març", 4: "abril", 5: "maig", 6: "juny",
+    7: "juliol", 8: "agost", 9: "setembre", 10: "octubre", 11: "novembre", 12: "desembre"
+}
+
 def es_de_mallorca(evento):
     texto = f"{evento.get('titol', '')} {evento.get('resum', '')} {evento.get('enllac', '')}".lower()
     return not any(re.search(rf"\b{re.escape(p)}\b", texto) for p in PALABRAS_EXCLUIDAS)
 
-def cargar_entradas_mallorca():
-    with open("hemeroteca_vectors.json", "r", encoding="utf-8") as f:
-        datos = json.load(f)
-    return [a for a in datos if a.get("tipus") == "entrada" and es_de_mallorca(a)]
+def coincide_fecha(evento, fechas_objetivo):
+    texto = f"{evento.get('titol', '')} {evento.get('resum', '')}".lower()
+    for f in fechas_objetivo:
+        patrones = [
+            f.strftime("%d/%m/%Y"),
+            f.strftime("%d/%m"),
+            f"{f.day} de {MESOS_CAT[f.month]}",
+            f"{f.day:02d} de {MESOS_CAT[f.month]}",
+            f"{f.day} {MESOS_CAT[f.month][:3]}"
+        ]
+        if any(p in texto for p in patrones):
+            return True
+    return False
+
+def extraer_ficha_web(url):
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; UEPMallorcaBot/1.0)"}
+        r = requests.get(url, headers=headers, timeout=12)
+        if r.status_code != 200:
+            return ""
+        soup = BeautifulSoup(r.text, "html.parser")
+        for tag in soup(["script", "style", "nav", "footer", "header", "noscript"]):
+            tag.decompose()
+        texto = soup.get_text(separator="\n", strip=True)
+        lineas = [l.strip() for l in texto.splitlines() if len(l.strip()) > 2]
+        return "\n".join(lineas)[:2500]
+    except Exception:
+        return ""
 
 def configurar_formato(tipo):
     hoy = datetime.now()
     if tipo == "sabado":
         dias = (5 - hoy.weekday()) % 7
-        fecha_obj = hoy + timedelta(days=dias)
+        f = hoy + timedelta(days=dias)
         return (
-            f"Agenda cultural del dissabte {fecha_obj.strftime('%d/%m/%Y')} a Mallorca",
-            f"Selecciona ÚNICAMENT els esdeveniments que tinguin lloc el dissabte {fecha_obj.strftime('%d/%m/%Y')} (o cicles actius amb funció aquell dia). Descarta qualsevol altra data."
+            f"Agenda cultural del dissabte {f.strftime('%d/%m/%Y')} a Mallorca",
+            f"Redacta la notícia d'agenda cultural per al dissabte {f.strftime('%d/%m/%Y')} a Mallorca.",
+            [f]
         )
     elif tipo == "domingo":
         dias = (6 - hoy.weekday()) % 7
-        fecha_obj = hoy + timedelta(days=dias)
+        f = hoy + timedelta(days=dias)
         return (
-            f"Agenda cultural del diumenge {fecha_obj.strftime('%d/%m/%Y')} a Mallorca",
-            f"Selecciona ÚNICAMENT els esdeveniments que tinguin lloc el diumenge {fecha_obj.strftime('%d/%m/%Y')} (o cicles actius amb funció aquell dia). Descarta qualsevol altra data."
+            f"Agenda cultural del diumenge {f.strftime('%d/%m/%Y')} a Mallorca",
+            f"Redacta la notícia d'agenda cultural per al diumenge {f.strftime('%d/%m/%Y')} a Mallorca.",
+            [f]
         )
     elif tipo == "conciertos_semana":
-        fin = hoy + timedelta(days=6)
+        fechas = [hoy + timedelta(days=i) for i in range(7)]
         return (
-            f"Concerts de la setmana a Mallorca ({hoy.strftime('%d/%m')} - {fin.strftime('%d/%m/%Y')})",
-            f"Selecciona ÚNICAMENT concerts i esdeveniments musicals que tinguin lloc entre el {hoy.strftime('%d/%m/%Y')} i el {fin.strftime('%d/%m/%Y')}. Descarta teatre, exposicions o altres disciplines."
+            f"Concerts de la setmana a Mallorca ({fechas[0].strftime('%d/%m')} - {fechas[-1].strftime('%d/%m/%Y')})",
+            f"Selecciona ÚNICAMENT concerts i música en directe entre el {fechas[0].strftime('%d/%m/%Y')} i el {fechas[-1].strftime('%d/%m/%Y')}. Descarta teatre i altres disciplines.",
+            fechas
         )
     elif tipo == "teatro_semana":
-        fin = hoy + timedelta(days=6)
+        fechas = [hoy + timedelta(days=i) for i in range(7)]
         return (
-            f"Teatre de la setmana a Mallorca ({hoy.strftime('%d/%m')} - {fin.strftime('%d/%m/%Y')})",
-            f"Selecciona ÚNICAMENT obres de teatre, arts escèniques, monòlegs o dansa que tinguin lloc entre el {hoy.strftime('%d/%m/%Y')} i el {fin.strftime('%d/%m/%Y')}. Descarta concerts o altres disciplines."
+            f"Teatre de la setmana a Mallorca ({fechas[0].strftime('%d/%m')} - {fechas[-1].strftime('%d/%m/%Y')})",
+            f"Selecciona ÚNICAMENT teatre, dansa, monòlegs i arts escèniques entre el {fechas[0].strftime('%d/%m/%Y')} i el {fechas[-1].strftime('%d/%m/%Y')}. Descarta concerts.",
+            fechas
         )
     raise ValueError("Tipus no vàlid")
 
-def redactar_noticia(tipo, entradas):
+def cargar_eventos_enriquecidos(fechas_objetivo):
+    with open("hemeroteca_vectors.json", "r", encoding="utf-8") as f:
+        datos = json.load(f)
+
+    candidatos = [
+        a for a in datos
+        if a.get("tipus") == "entrada" and es_de_mallorca(a) and coincide_fecha(a, fechas_objetivo)
+    ]
+
+    enriquecidos = []
+    for ev in candidatos[:15]:
+        print(f"Llegint fitxa completa: {ev.get('titol')} -> {ev.get('enllac')}")
+        texto_web = extraer_ficha_web(ev.get("enllac", ""))
+        enriquecidos.append({
+            "titol": ev.get("titol", ""),
+            "resum": ev.get("resum", ""),
+            "enllac": ev.get("enllac", ""),
+            "fitxa_completa": texto_web
+        })
+    return enriquecidos
+
+def redactar_noticia(tipo, eventos, titulo_borrador, instruccion_filtro):
     client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    titulo_borrador, instruccion_filtro = configurar_formato(tipo)
     fecha_hoy = datetime.now().strftime("%d/%m/%Y")
 
-    listado = ""
-    for e in entradas:
-        listado += (
-            f"- Títol: {e.get('titol')}\n"
-            f"  Resum/Detalls: {e.get('resum')}\n"
-            f"  Enllaç entrades: {e.get('enllac')}\n\n"
+    dossier = ""
+    for i, e in enumerate(eventos, 1):
+        dossier += (
+            f"=== ESDEVENIMENT {i} ===\n"
+            f"Títol: {e['titol']}\n"
+            f"Resum breu: {e['resum']}\n"
+            f"Enllaç entrades: {e['enllac']}\n"
+            f"TEXT COMPLET DE LA FITXA WEB:\n{e['fitxa_completa']}\n\n"
         )
 
     prompt_sistema = f"""
 Actua com una periodista jove, feminista i experimentada de la secció de cultura del diari digital UEP! Mallorca.
-La data d'AVUI és: {fecha_hoy}.
-
+Avui és {fecha_hoy}.
 OBJECTIU: {instruccion_filtro}
 
-ENFOCAMENT PERIODÍSTIC (MOLT IMPORTANT):
-- NO escriguis un llistat d'esdeveniments ni una agenda plana. Redacta una NOTÍCIA CULTURAL completa, llegible i amb fil conductor.
-- Identifica els grans protagonistes o la proposta més destacada de la jornada/setmana per obrir el primer paràgraf (lead) amb les 5W i la paraula clau principal.
-- APROFITAMENT MÀXIM: Desenvolupa en paràgrafs (<p>) tots els detalls que constin al text base de cada espectacle (sinopsi, artistes, gènere, particularitats, recinte), connectant les propostes entre si de manera fluida per temàtica, disciplina o municipis.
-- PROHIBIT utilitzar llistes de punts (<ul> o <li>) dins el cos de la notícia. Les llistes només es poden fer servir al bloc final de "Dades pràctiques".
-- RIGOR ABSOLUT: NO inventis mai hores, preus, recintes ni dades que no surtin a la llista proporcionada. Respecta sempre els noms propis i títols originals sense traduir-los. Si algun esdeveniment és d'Eivissa, Menorca o Formentera, descarta'l completament.
+REGLES INNEGOCIABLES (SI LES INCOMPLEIXES, L'ARTICLE NO SERVEIX):
+1. ZERO TÒPICS NI FARCIMENT: Està TERMINANTMENT PROHIBIT escriure frases buides com "promet emocionar", "promet ser un dels esdeveniments destacats", "una experiència musical única", "un concert que no es pot perdre", "farà gaudir al públic" o "forma part de la programació". Cada frase ha d'aportar dades concretes extretes de la fitxa web (artistes, repertori, sinopsi, horari, preu, recinte, municipi).
+2. ESTRUCTURA PERIODÍSTICA REAL (NO UN LLISTAT):
+   - Obre amb un LEAD potent (piràmide invertida, 5W) que destaqui les cites principals de la jornada/setmana i inclogui la paraula clau principal.
+   - Agrupa els esdeveniments en 2 o 3 grans blocs temàtics o geogràfics amb subtítols <h2> descriptius (ex: <h2>Jazz, lírica i música en directe a Palma i la Part Forana</h2>, <h2>Escena teatral i propostes nocturnes</h2>). NO facis un <h2> per a cada esdeveniment individual.
+   - Redacta en paràgrafs (<p>) rics i enllaçats entre si, aprofitant al màxim la informació real de cada fitxa web. PROHIBIT utilitzar llistes <ul>/<li> dins el cos de la notícia.
+   - Integra els enllaços de compra de forma natural dins el text (<a href="...">entrades disponibles en línia</a>).
+   - Aplica <strong> només a noms clau, municipis, espais culturals i dates.
+3. RIGOR ABSOLUT: No inventis mai cap dada. Respecta els noms propis i títols originals sense traduir-los (ni al català ni al castellà). Descarta qualsevol esdeveniment d'Eivissa, Menorca o Formentera.
+4. CAIXA FINAL OBLIGATÒRIA: Al final de la notícia en català, posa <h2>Dades pràctiques</h2> amb una llista <ul><li> detallada, UN PUNT PER CADA ESDEVENIMENT, indicant: nom, data, hora exacta (si consta a la fitxa), recinte i municipi, preu (si consta) i enllaç.
+5. BLOC DE REDACCIÓ (després d'un <hr>):
+   - 3 propostes de titular (màx. 60 caràcters): 1) Periodístic, 2) Google Discover, 3) SEO.
+   - Meta descripció (màx. 140 caràcters).
+   - Posts per a xarxes: Threads i Bluesky (màx. 280 caràcters, sense "no t'ho perdis"), Instagram i Facebook (to natural, 3-4 hashtags locals).
+   - Versió íntegra adaptada periodísticament al castellà (mateix rigor, sense tòpics, mateixa caixa de Datos prácticos detallada, titular i meta descripció).
 
-ESTIL I FORMAT HTML NET PER A WORDPRESS (sense <html> ni <body>):
-- Català natural, ric i periodístic, frases curtes i dinàmiques. Sense llenguatge administratiu, sense adjectius valoratius gratuïts ni primera persona.
-- Divideix la notícia en blocs temàtics o geogràfics utilitzant només subtítols <h2> (mai <h3> ni <h4>), descriptius i orientats a cerca.
-- Aplica <strong> exclusivament a noms clau, municipis, espais culturals de Mallorca i dates rellevants.
-- Integra els enllaços a la taquilla de manera natural dins les frases (ex: <a href="...">les entrades ja es poden adquirir en línia</a>), sense repetir fórmules robòtiques.
-- Al final de la notícia en català, afegeix un <h2>Dades pràctiques</h2> amb una llista <ul><li> que reculli en format esquemàtic cada cita (nom, data, hora, lloc i preu només si consten, amb l'enllaç).
-
-BLOC DE REDACCIÓ (després de la notícia, separat per <hr>, per esborrar abans de publicar):
-- 3 propostes de titular (màxim 60 caràcters): 1) Periodístic, 2) Google Discover, 3) SEO.
-- Meta descripció (màxim 140 caràcters).
-- Xarxes socials: Threads i Bluesky (màx. 280 caràcters), Instagram i Facebook (to natural, sense "llegeix més", 3-4 hashtags locals).
-- Versió íntegra adaptada periodísticament al castellà (amb titular i meta descripció, també redactada com a notícia en paràgrafs, no com a llistat).
-
-Si no hi ha cap esdeveniment a la llista que encaixi amb el filtre de dates i disciplina, respon ÚNICAMENT amb la paraula: SENSE_ESDEVENIMENTS
+Format de sortida: HTML net per a WordPress (sense etiquetes <html>, <head> ni <body>, i sense blocs ```html).
 """
 
     respuesta = client.chat.completions.create(
-        model="gpt-4o-mini",
-        temperature=0.4,
+        model="gpt-4o",
+        temperature=0.3,
         messages=[
             {"role": "system", "content": prompt_sistema},
-            {"role": "user", "content": f"Llista d'esdeveniments disponibles a entradas.uepmallorca.app:\n\n{listado}"}
+            {"role": "user", "content": dossier}
         ]
     )
-    return titulo_borrador, respuesta.choices[0].message.content.strip()
+    return respuesta.choices[0].message.content.strip()
 
 def enviar_borrador_wordpress(titulo, contenido_html):
-    url = "https://uepmallorca.app/wp-json/wp/v2/posts"
+    url = "[https://uepmallorca.app/wp-json/wp/v2/posts](https://uepmallorca.app/wp-json/wp/v2/posts)"
     auth = (os.environ["WP_USER"], os.environ["WP_APP_PASSWORD"])
     payload = {
         "title": f"[ESBORRANY IA] {titulo}",
@@ -123,10 +173,11 @@ if __name__ == "__main__":
     parser.add_argument("--tipus", required=True, choices=["sabado", "domingo", "conciertos_semana", "teatro_semana"])
     args = parser.parse_args()
 
-    entradas = cargar_entradas_mallorca()
-    titulo, html = redactar_noticia(args.tipus, entradas)
+    titulo, instruccion, fechas = configurar_formato(args.tipus)
+    eventos = cargar_eventos_enriquecidos(fechas)
 
-    if html == "SENSE_ESDEVENIMENTS":
-        print("No s'han trobat esdeveniments per a aquest filtre. No s'ha creat cap esborrany.")
+    if not eventos:
+        print("No s'han trobat esdeveniments per a aquest filtre.")
     else:
+        html = redactar_noticia(args.tipus, eventos, titulo, instruccion)
         enviar_borrador_wordpress(titulo, html)
