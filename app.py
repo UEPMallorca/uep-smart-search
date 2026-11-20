@@ -12,7 +12,7 @@ st.set_page_config(page_title="UEP! Smart Search", page_icon="🕷️")
 st.title("🕷️ UEP! Smart Search")
 st.write("El cercador cultural intel·ligent de Mallorca (Hemeroteca i Taquilla).")
 
-# 2. Client d'OpenAI en memòria cau (reutilitza la connexió)
+# 2. Client d'OpenAI en memòria cau
 @st.cache_resource
 def obtenir_client():
     load_dotenv()
@@ -21,7 +21,7 @@ def obtenir_client():
 
 client = obtenir_client()
 
-# 3. Carregar i pre-normalitzar la base de dades vectorial un sol cop
+# 3. Carregar i pre-normalitzar la base de dades vectorial
 @st.cache_data
 def carregar_hemeroteca():
     with open("hemeroteca_vectors.json", "r", encoding="utf-8") as arxiu:
@@ -33,7 +33,7 @@ def carregar_hemeroteca():
 
 articles, matriu_normalitzada = carregar_hemeroteca()
 
-# 4. Memòria cau d'embeddings (1 hora) per a cerques repetides
+# 4. Memòria cau d'embeddings (1 hora)
 @st.cache_data(ttl=3600, show_spinner=False)
 def obtenir_embedding_pregunta(text):
     resposta_emb = client.embeddings.create(
@@ -43,11 +43,15 @@ def obtenir_embedding_pregunta(text):
     v = np.array(resposta_emb.data[0].embedding, dtype=np.float32)
     return v / np.maximum(np.linalg.norm(v), 1e-10)
 
-# 5. Cerca equilibrada (8 notícies + 6 entrades)
-def cercar_articles_semantics(pregunta, max_noticies=8, max_entrades=6, llindar_minim=0.18):
+# 5. Cerca equilibrada amb filtre opcional de només entrades
+def cercar_articles_semantics(pregunta, max_noticies=8, max_entrades=6, llindar_minim=0.18, nomes_entrades=False):
     vector_pregunta = obtenir_embedding_pregunta(pregunta)
     similituds = np.dot(matriu_normalitzada, vector_pregunta)
     indexs_ordenats = np.argsort(similituds)[::-1]
+
+    if nomes_entrades:
+        max_noticies = 0
+        max_entrades = 10
 
     noticies_sel = []
     entrades_sel = []
@@ -70,19 +74,54 @@ def cercar_articles_semantics(pregunta, max_noticies=8, max_entrades=6, llindar_
 
     return noticies_sel + entrades_sel
 
-# 6. Interfície de cerca (amb suport per a búsquedes directes des d'uepmallorca.app)
+# 6. Estat inicial (suport per a ?q= des d'uepmallorca.app i botons ràpids)
 pregunta_url = st.query_params.get("q", "")
+
+if "pregunta_input" not in st.session_state:
+    st.session_state.pregunta_input = pregunta_url
+if "nomes_entrades" not in st.session_state:
+    st.session_state.nomes_entrades = False
+if "llancar_cerca" not in st.session_state:
+    st.session_state.llancar_cerca = bool(pregunta_url)
+
+def seleccionar_xip(text_cerca, activar_nomes_entrades=False):
+    st.session_state.pregunta_input = text_cerca
+    st.session_state.nomes_entrades = activar_nomes_entrades
+    st.session_state.llancar_cerca = True
+
+# 7. Interfície: casella + botons ràpids + interruptor d'entrades
 pregunta = st.text_input(
     "Què vols saber? (Ex: concerts a Palma, teatre aquest cap de setmana, exposicions...)",
-    value=pregunta_url
+    key="pregunta_input"
 )
 
-cercar_clic = st.button("Cercar")
+st.caption("Cerques ràpides:")
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    st.button("🎭 Teatre Palma", use_container_width=True, on_click=seleccionar_xip, args=("Teatre a Palma", False))
+with col2:
+    st.button("🎸 Concerts", use_container_width=True, on_click=seleccionar_xip, args=("Concerts aquest cap de setmana", False))
+with col3:
+    st.button("🖼️ Exposicions", use_container_width=True, on_click=seleccionar_xip, args=("Exposicions a Mallorca", False))
+with col4:
+    st.button("🎟️ Entrades", use_container_width=True, on_click=seleccionar_xip, args=("Entrades disponibles a Mallorca", True))
 
-if cercar_clic or pregunta_url:
+nomes_entrades = st.toggle("🎟️ Només esdeveniments amb entrades disponibles", key="nomes_entrades")
+cercar_clic = st.button("Cercar", type="primary")
+
+if cercar_clic:
+    st.session_state.llancar_cerca = True
+
+if st.session_state.llancar_cerca:
     if pregunta:
         with st.spinner("Cercant a l'hemeroteca i a la taquilla..."):
-            top_articles = cercar_articles_semantics(pregunta, max_noticies=8, max_entrades=6, llindar_minim=0.18)
+            top_articles = cercar_articles_semantics(
+                pregunta,
+                max_noticies=8,
+                max_entrades=6,
+                llindar_minim=0.18,
+                nomes_entrades=nomes_entrades
+            )
             data_avui = datetime.now().strftime("%d/%m/%Y")
 
         if not top_articles:
