@@ -15,6 +15,11 @@ PALABRAS_EXCLUIDAS = [
     "sant josep de sa talaia", "sant joan de labritja"
 ]
 
+TITULOS_IGNORAR = [
+    "agenda cultural", "concerts de la setmana", "teatre de la setmana",
+    "esborrany", "borrador"
+]
+
 MESOS_CAT = {
     1: "gener", 2: "febrer", 3: "març", 4: "abril", 5: "maig", 6: "juny",
     7: "juliol", 8: "agost", 9: "setembre", 10: "octubre", 11: "novembre", 12: "desembre"
@@ -23,6 +28,10 @@ MESOS_CAT = {
 def es_de_mallorca(evento):
     texto = f"{evento.get('titol', '')} {evento.get('resum', '')} {evento.get('enllac', '')}".lower()
     return not any(re.search(rf"\b{re.escape(p)}\b", texto) for p in PALABRAS_EXCLUIDAS)
+
+def es_agenda_previa(evento):
+    titulo = evento.get("titol", "").lower()
+    return any(t in titulo for t in TITULOS_IGNORAR)
 
 def coincide_fecha(evento, fechas_objetivo):
     texto = f"{evento.get('titol', '')} {evento.get('resum', '')}".lower()
@@ -45,18 +54,18 @@ def extraer_ficha_web(url):
         if r.status_code != 200:
             return ""
         soup = BeautifulSoup(r.text, "html.parser")
-        for tag in soup(["script", "style", "nav", "footer", "header", "noscript"]):
+        for tag in soup(["script", "style", "nav", "footer", "header", "noscript", "aside"]):
             tag.decompose()
-        texto = soup.get_text(separator="\n", strip=True)
+        # Si es un artículo de WordPress, prioriza el contenido principal
+        contenedor = soup.find("article") or soup.find("main") or soup
+        texto = contenedor.get_text(separator="\n", strip=True)
         lineas = [l.strip() for l in texto.splitlines() if len(l.strip()) > 2]
         return "\n".join(lineas)[:2500]
     except Exception:
         return ""
 
 def limpiar_y_formatear_html(html):
-    # Convierte cualquier residuo de Markdown (**texto**) en <strong>texto</strong>
     html = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html)
-    # Fuerza que todos los enlaces se abran en una pestaña nueva
     soup = BeautifulSoup(html, "html.parser")
     for a in soup.find_all("a"):
         a["target"] = "_blank"
@@ -71,7 +80,7 @@ def configurar_formato(tipo):
         return (
             f"Agenda cultural del dissabte {f.strftime('%d/%m/%Y')} a Mallorca",
             f"Agenda cultural del sábado {f.strftime('%d/%m/%Y')} en Mallorca",
-            f"Redacta la notícia d'agenda cultural per al dissabte {f.strftime('%d/%m/%Y')} a Mallorca.",
+            f"Redacta la notícia d'agenda cultural per al dissabte {f.strftime('%d/%m/%Y')} a Mallorca. Descarta qualsevol acte que no tingui lloc aquell dia.",
             [f]
         )
     elif tipo == "domingo":
@@ -80,7 +89,7 @@ def configurar_formato(tipo):
         return (
             f"Agenda cultural del diumenge {f.strftime('%d/%m/%Y')} a Mallorca",
             f"Agenda cultural del domingo {f.strftime('%d/%m/%Y')} en Mallorca",
-            f"Redacta la notícia d'agenda cultural per al diumenge {f.strftime('%d/%m/%Y')} a Mallorca.",
+            f"Redacta la notícia d'agenda cultural per al diumenge {f.strftime('%d/%m/%Y')} a Mallorca. Descarta qualsevol acte que no tingui lloc aquell dia.",
             [f]
         )
     elif tipo == "conciertos_semana":
@@ -105,16 +114,28 @@ def cargar_eventos_enriquecidos(fechas_objetivo):
     with open("hemeroteca_vectors.json", "r", encoding="utf-8") as f:
         datos = json.load(f)
 
-    candidatos = [
+    entradas = [
         a for a in datos
         if a.get("tipus") == "entrada" and es_de_mallorca(a) and coincide_fecha(a, fechas_objetivo)
     ]
 
+    noticias = [
+        a for a in datos
+        if a.get("tipus") != "entrada"
+        and not es_agenda_previa(a)
+        and es_de_mallorca(a)
+        and coincide_fecha(a, fechas_objetivo)
+    ]
+
+    seleccion = entradas[:12] + noticias[:10]
     enriquecidos = []
-    for ev in candidatos[:15]:
-        print(f"Llegint fitxa completa: {ev.get('titol')} -> {ev.get('enllac')}")
+
+    for ev in seleccion:
+        origen = "TAQUILLA (entradas.uepmallorca.app)" if ev.get("tipus") == "entrada" else "NOTÍCIA (uepmallorca.app)"
+        print(f"Llegint [{origen}]: {ev.get('titol')} -> {ev.get('enllac')}")
         texto_web = extraer_ficha_web(ev.get("enllac", ""))
         enriquecidos.append({
+            "origen": origen,
             "titol": ev.get("titol", ""),
             "resum": ev.get("resum", ""),
             "enllac": ev.get("enllac", ""),
@@ -129,11 +150,11 @@ def redactar_noticias_bilingues(eventos, instruccion_filtro):
     dossier = ""
     for i, e in enumerate(eventos, 1):
         dossier += (
-            f"=== ESDEVENIMENT {i} ===\n"
+            f"=== ELEMENT {i} [{e['origen']}] ===\n"
             f"Títol: {e['titol']}\n"
             f"Resum breu: {e['resum']}\n"
-            f"Enllaç entrades: {e['enllac']}\n"
-            f"TEXT COMPLET DE LA FITXA WEB:\n{e['fitxa_completa']}\n\n"
+            f"Enllaç: {e['enllac']}\n"
+            f"TEXT COMPLET DE LA PÀGINA:\n{e['fitxa_completa']}\n\n"
         )
 
     prompt_sistema = f"""
@@ -144,15 +165,19 @@ OBJECTIU: {instruccion_filtro}
 REGLES INNEGOCIABLES:
 1. ZERO TÒPICS, ZERO CLIXÉS I ZERO ARRANCS REPETITIUS:
    - ESTÀ TERMINANTMENT PROHIBIT utilitzar expressions buides o grandiloqüents com "es converteix en l'epicentre de la cultura", "epicentre cultural", "amb una oferta variada", "una jornada plena de cultura", "promet emocionar", "una experiència única", "no es pot perdre" o "farà gaudir al públic".
-   - NO comencis mai l'article amb la fórmula genèrica "El dissabte [data], Mallorca...". Obre el primer paràgraf (lead) anant directament als protagonistes reals del dia o de la setmana (noms propis d'artistes, festivals, estrenes o espais concrets que marquen el pols de la jornada), integrant les 5W de manera natural i periodística.
-2. ESTRUCTURA PERIODÍSTICA REAL (NO UN LLISTAT):
+   - NO comencis mai l'article amb la fórmula genèrica "El dissabte [data], Mallorca...". Obre el primer paràgraf (lead) anant directament als protagonistes reals del dia o de la setmana (noms propis d'artistes, festivals, estrenes o espais concrets), integrant les 5W de manera natural i periodística.
+2. INTEGRACIÓ DE LES DUES FONTS (TAQUILLA + NOTÍCIES D'UEP! MALLORCA):
+   - Rebràs elements de TAQUILLA (entradas.uepmallorca.app) i NOTÍCIES publicades a uepmallorca.app.
+   - Comprova sempre que l'acte de la notícia realment tingui lloc en la data objectiu (si una notícia només menciona la data de passada o parla d'un acte ja passat, descarta-la).
+   - Si un mateix esdeveniment apareix tant a TAQUILLA com a NOTÍCIA, fusiona la informació en un sol relat (sense repetir-lo) i integra tots dos enllaços (el de la notícia d'UEP! per ampliar informació i el de la taquilla per a les entrades).
+   - En els actes que provenen de NOTÍCIA d'UEP! Mallorca, integra l'enllaç intern de manera natural (ex: <a href="..." target="_blank" rel="noopener noreferrer">segons ha avançat UEP! Mallorca</a> o enllaçant el nom de l'exposició/acte).
+3. ESTRUCTURA PERIODÍSTICA REAL (NO UN LLISTAT):
    - Agrupa els esdeveniments en 2 o 3 grans blocs temàtics o geogràfics amb subtítols <h2> descriptius. NO facis un <h2> per a cada esdeveniment individual.
    - Redacta en paràgrafs (<p>) rics i enllaçats entre si, integrant totes les dades pràctiques (hora, recinte, municipi, preu si consta) dins el propi relat.
    - NO afegeixis cap secció de "Dades pràctiques" ni "Datos prácticos" al final.
-   - Integra els enllaços de compra de forma natural dins el text amb target="_blank" rel="noopener noreferrer".
    - FORMAT HTML ESTRICTE: Utilitza EXCLUSIVAMENT etiquetes HTML (<strong>...</strong>) per a les negretes. PROHIBIT fer servir asteriscos de Markdown (**). Aplica <strong> només a noms clau, municipis, espais culturals i dates.
-3. RIGOR ABSOLUT: No inventis cap dada. Respecta els noms propis i títols originals sense traduir-los. Descarta qualsevol esdeveniment d'Eivissa, Menorca o Formentera.
-4. BLOC DE REDACCIÓ AL FINAL DE CADA VERSIÓ (separat per <hr>):
+4. RIGOR ABSOLUT: No inventis cap dada. Respecta els noms propis i títols originals sense traduir-los. Descarta qualsevol esdeveniment d'Eivissa, Menorca o Formentera.
+5. BLOC DE REDACCIÓ AL FINAL DE CADA VERSIÓ (separat per <hr>):
    - 3 propostes de titular (màx. 60 caràcters): 1) Periodístic, 2) Google Discover, 3) SEO.
    - Meta descripció (màx. 140 caràcters).
    - Posts per a xarxes: Threads i Bluesky (màx. 280 caràcters), Instagram i Facebook (to natural, 3-4 hashtags locals).
