@@ -1,0 +1,52 @@
+name: Generador d'Agendes UEP! Mallorca
+
+on:
+  workflow_dispatch:
+    inputs:
+      tipus:
+        description: "Quina agenda vols generar ara?"
+        required: true
+        default: "sabado"
+        type: choice
+        options:
+          - sabado
+          - domingo
+          - conciertos_semana
+          - teatro_semana
+  schedule:
+    # Dilluns a les 07:00 UTC (08:00 hora Palma) -> Concerts i Teatre de la setmana
+    - cron: '0 7 * * 1'
+    # Divendres a les 07:00 UTC -> Agenda del dissabte
+    - cron: '0 7 * * 5'
+    # Dissabte a les 07:00 UTC -> Agenda del diumenge
+    - cron: '0 7 * * 6'
+
+jobs:
+  generar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instal·lar llibreries
+        run: pip install openai requests
+
+      - name: Executar generador
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          WP_USER: ${{ secrets.WP_USER }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            python generador_agenda.py --tipus ${{ github.event.inputs.tipus }}
+          elif [ "$(date +%u)" == "1" ]; then
+            python generador_agenda.py --tipus conciertos_semana
+            python generador_agenda.py --tipus teatro_semana
+          elif [ "$(date +%u)" == "5" ]; then
+            python generador_agenda.py --tipus sabado
+          elif [ "$(date +%u)" == "6" ]; then
+            python generador_agenda.py --tipus domingo
+          fi
