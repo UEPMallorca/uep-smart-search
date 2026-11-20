@@ -53,7 +53,10 @@ def extraer_ficha_web(url):
     except Exception:
         return ""
 
-def forzar_enlaces_nueva_pestana(html):
+def limpiar_y_formatear_html(html):
+    # Convierte cualquier residuo de Markdown (**texto**) en <strong>texto</strong>
+    html = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html)
+    # Fuerza que todos los enlaces se abran en una pestaña nueva
     soup = BeautifulSoup(html, "html.parser")
     for a in soup.find_all("a"):
         a["target"] = "_blank"
@@ -139,14 +142,15 @@ Avui és {fecha_hoy}.
 OBJECTIU: {instruccion_filtro}
 
 REGLES INNEGOCIABLES:
-1. ZERO TÒPICS NI FARCIMENT: Prohibit escriure frases buides com "promet emocionar", "una experiència única", "un concert que no es pot perdre" o "farà gaudir al públic". Cada frase ha d'aportar dades concretes extretes de la fitxa web (artistes, repertori, sinopsi, horari exacte, preu, recinte, municipi).
+1. ZERO TÒPICS, ZERO CLIXÉS I ZERO ARRANCS REPETITIUS:
+   - ESTÀ TERMINANTMENT PROHIBIT utilitzar expressions buides o grandiloqüents com "es converteix en l'epicentre de la cultura", "epicentre cultural", "amb una oferta variada", "una jornada plena de cultura", "promet emocionar", "una experiència única", "no es pot perdre" o "farà gaudir al públic".
+   - NO comencis mai l'article amb la fórmula genèrica "El dissabte [data], Mallorca...". Obre el primer paràgraf (lead) anant directament als protagonistes reals del dia o de la setmana (noms propis d'artistes, festivals, estrenes o espais concrets que marquen el pols de la jornada), integrant les 5W de manera natural i periodística.
 2. ESTRUCTURA PERIODÍSTICA REAL (NO UN LLISTAT):
-   - Obre amb un LEAD potent (piràmide invertida, 5W) destacant les cites principals i incloent la paraula clau principal.
    - Agrupa els esdeveniments en 2 o 3 grans blocs temàtics o geogràfics amb subtítols <h2> descriptius. NO facis un <h2> per a cada esdeveniment individual.
    - Redacta en paràgrafs (<p>) rics i enllaçats entre si, integrant totes les dades pràctiques (hora, recinte, municipi, preu si consta) dins el propi relat.
-   - NO afegeixis cap secció de "Dades pràctiques" ni "Datos prácticos" al final (ja van integrades a la notícia).
+   - NO afegeixis cap secció de "Dades pràctiques" ni "Datos prácticos" al final.
    - Integra els enllaços de compra de forma natural dins el text amb target="_blank" rel="noopener noreferrer".
-   - Aplica <strong> només a noms clau, municipis, espais culturals i dates.
+   - FORMAT HTML ESTRICTE: Utilitza EXCLUSIVAMENT etiquetes HTML (<strong>...</strong>) per a les negretes. PROHIBIT fer servir asteriscos de Markdown (**). Aplica <strong> només a noms clau, municipis, espais culturals i dates.
 3. RIGOR ABSOLUT: No inventis cap dada. Respecta els noms propis i títols originals sense traduir-los. Descarta qualsevol esdeveniment d'Eivissa, Menorca o Formentera.
 4. BLOC DE REDACCIÓ AL FINAL DE CADA VERSIÓ (separat per <hr>):
    - 3 propostes de titular (màx. 60 caràcters): 1) Periodístic, 2) Google Discover, 3) SEO.
@@ -162,7 +166,7 @@ Retorna ÚNICAMENT un objecte JSON vàlid amb exactament dues claus:
 
     respuesta = client.chat.completions.create(
         model="gpt-4o",
-        temperature=0.3,
+        temperature=0.35,
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": prompt_sistema},
@@ -170,8 +174,8 @@ Retorna ÚNICAMENT un objecte JSON vàlid amb exactament dues claus:
         ]
     )
     datos_json = json.loads(respuesta.choices[0].message.content)
-    html_cat = forzar_enlaces_nueva_pestana(datos_json.get("html_cat", ""))
-    html_es = forzar_enlaces_nueva_pestana(datos_json.get("html_es", ""))
+    html_cat = limpiar_y_formatear_html(datos_json.get("html_cat", ""))
+    html_es = limpiar_y_formatear_html(datos_json.get("html_es", ""))
     return html_cat, html_es
 
 def enviar_borrador_wordpress(titulo, contenido_html):
