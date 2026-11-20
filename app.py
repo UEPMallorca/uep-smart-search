@@ -74,4 +74,5 @@ def cercar_articles_semantics(pregunta, max_noticies=8, max_entrades=6, llindar_
 pregunta_url = st.query_params.get("q", "")
 pregunta = st.text_input(
     "Què vols saber? (Ex: concerts a Palma, teatre aquest cap de setmana, exposicions...)",
-    value=pregunta_
+    value=pregunta_url
+)
