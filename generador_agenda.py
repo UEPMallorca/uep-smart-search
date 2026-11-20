@@ -56,7 +56,6 @@ def extraer_ficha_web(url):
         soup = BeautifulSoup(r.text, "html.parser")
         for tag in soup(["script", "style", "nav", "footer", "header", "noscript", "aside"]):
             tag.decompose()
-        # Si es un artículo de WordPress, prioriza el contenido principal
         contenedor = soup.find("article") or soup.find("main") or soup
         texto = contenedor.get_text(separator="\n", strip=True)
         lineas = [l.strip() for l in texto.splitlines() if len(l.strip()) > 2]
@@ -65,7 +64,12 @@ def extraer_ficha_web(url):
         return ""
 
 def limpiar_y_formatear_html(html):
+    # Elimina posibles bloques ```html que devuelva el modelo
+    html = re.sub(r"^```html\s*", "", html.strip(), flags=re.IGNORECASE)
+    html = re.sub(r"\s*```$", "", html.strip())
+    # Convierte cualquier residuo de Markdown (**texto**) en <strong>texto</strong>
     html = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html)
+    # Fuerza que todos los enlaces se abran en una pestaña nueva
     soup = BeautifulSoup(html, "html.parser")
     for a in soup.find_all("a"):
         a["target"] = "_blank"
@@ -127,7 +131,7 @@ def cargar_eventos_enriquecidos(fechas_objetivo):
         and coincide_fecha(a, fechas_objetivo)
     ]
 
-    seleccion = entradas[:12] + noticias[:10]
+    seleccion = entradas[:15] + noticias[:10]
     enriquecidos = []
 
     for ev in seleccion:
@@ -143,8 +147,7 @@ def cargar_eventos_enriquecidos(fechas_objetivo):
         })
     return enriquecidos
 
-def redactar_noticias_bilingues(eventos, instruccion_filtro):
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+def redactar_noticia_cat(client, eventos, instruccion_filtro):
     fecha_hoy = datetime.now().strftime("%d/%m/%Y")
 
     dossier = ""
@@ -163,48 +166,65 @@ Avui és {fecha_hoy}.
 OBJECTIU: {instruccion_filtro}
 
 REGLES INNEGOCIABLES:
-1. ZERO TÒPICS, ZERO CLIXÉS I ZERO ARRANCS REPETITIUS:
-   - ESTÀ TERMINANTMENT PROHIBIT utilitzar expressions buides o grandiloqüents com "es converteix en l'epicentre de la cultura", "epicentre cultural", "amb una oferta variada", "una jornada plena de cultura", "promet emocionar", "una experiència única", "no es pot perdre" o "farà gaudir al públic".
-   - NO comencis mai l'article amb la fórmula genèrica "El dissabte [data], Mallorca...". Obre el primer paràgraf (lead) anant directament als protagonistes reals del dia o de la setmana (noms propis d'artistes, festivals, estrenes o espais concrets), integrant les 5W de manera natural i periodística.
-2. INTEGRACIÓ DE LES DUES FONTS (TAQUILLA + NOTÍCIES D'UEP! MALLORCA):
-   - Rebràs elements de TAQUILLA (entradas.uepmallorca.app) i NOTÍCIES publicades a uepmallorca.app.
-   - Comprova sempre que l'acte de la notícia realment tingui lloc en la data objectiu (si una notícia només menciona la data de passada o parla d'un acte ja passat, descarta-la).
-   - Si un mateix esdeveniment apareix tant a TAQUILLA com a NOTÍCIA, fusiona la informació en un sol relat (sense repetir-lo) i integra tots dos enllaços (el de la notícia d'UEP! per ampliar informació i el de la taquilla per a les entrades).
-   - En els actes que provenen de NOTÍCIA d'UEP! Mallorca, integra l'enllaç intern de manera natural (ex: <a href="..." target="_blank" rel="noopener noreferrer">segons ha avançat UEP! Mallorca</a> o enllaçant el nom de l'exposició/acte).
+1. COBERTURA EXHAUSTIVA DE TAQUILLA (MOLT IMPORTANT):
+   - Has d'incloure TOTS i CADA UN dels esdeveniments marcats com a [TAQUILLA (entradas.uepmallorca.app)] que encaixin amb la data i la disciplina demanada. NO n'ometis ni un sol ni els resumeixis en excés.
+   - Afegeix també els actes culturals rellevants procedents de [NOTÍCIA (uepmallorca.app)] que tinguin lloc exactament en la data objectiu.
+   - Si un mateix esdeveniment apareix tant a TAQUILLA com a NOTÍCIA, fusiona la informació en un sol paràgraf sense repetir-lo i integra tots dos enllaços.
+2. ZERO TÒPICS, ZERO CLIXÉS I ZERO ARRANCS REPETITIUS:
+   - ESTÀ TERMINANTMENT PROHIBIT utilitzar expressions buides com "es converteix en l'epicentre de la cultura", "epicentre cultural", "amb una oferta variada", "promet emocionar", "una experiència única", "no es pot perdre" o "farà gaudir al públic".
+   - NO comencis mai amb "El dissabte [data], Mallorca...". Obre el primer paràgraf (lead) directament amb els protagonistes reals de la jornada (artistes, festivals, estrenes o espais concrets), integrant les 5W de forma natural.
 3. ESTRUCTURA PERIODÍSTICA REAL (NO UN LLISTAT):
-   - Agrupa els esdeveniments en 2 o 3 grans blocs temàtics o geogràfics amb subtítols <h2> descriptius. NO facis un <h2> per a cada esdeveniment individual.
-   - Redacta en paràgrafs (<p>) rics i enllaçats entre si, integrant totes les dades pràctiques (hora, recinte, municipi, preu si consta) dins el propi relat.
-   - NO afegeixis cap secció de "Dades pràctiques" ni "Datos prácticos" al final.
+   - Agrupa els esdeveniments en 3 o 4 grans blocs temàtics o geogràfics amb subtítols <h2> descriptius. NO facis un <h2> per a cada esdeveniment individual.
+   - Redacta en paràgrafs (<p>) complets i enllaçats entre si, integrant totes les dades pràctiques (hora, recinte, municipi, preu si consta) dins el propi relat.
+   - NO afegeixis cap secció de "Dades pràctiques" al final.
+   - Integra els enllaços de compra i de notícies d'UEP! de manera natural dins les frases amb <a href="..." target="_blank" rel="noopener noreferrer">...</a>.
    - FORMAT HTML ESTRICTE: Utilitza EXCLUSIVAMENT etiquetes HTML (<strong>...</strong>) per a les negretes. PROHIBIT fer servir asteriscos de Markdown (**). Aplica <strong> només a noms clau, municipis, espais culturals i dates.
 4. RIGOR ABSOLUT: No inventis cap dada. Respecta els noms propis i títols originals sense traduir-los. Descarta qualsevol esdeveniment d'Eivissa, Menorca o Formentera.
-5. BLOC DE REDACCIÓ AL FINAL DE CADA VERSIÓ (separat per <hr>):
+5. BLOC DE REDACCIÓ AL FINAL (separat per <hr>):
    - 3 propostes de titular (màx. 60 caràcters): 1) Periodístic, 2) Google Discover, 3) SEO.
    - Meta descripció (màx. 140 caràcters).
    - Posts per a xarxes: Threads i Bluesky (màx. 280 caràcters), Instagram i Facebook (to natural, 3-4 hashtags locals).
 
-FORMAT DE SORTIDA OBLIGATORI:
-Retorna ÚNICAMENT un objecte JSON vàlid amb exactament dues claus:
-- "html_cat": HTML net per a WordPress amb la notícia completa en català + el seu bloc de redacció en català després d'<hr>.
-- "html_es": HTML net per a WordPress amb l'adaptació periodística completa en castellà + el seu bloc de redacció en castellà després d'<hr>.
-(Sense etiquetes <html>, <head> ni <body>).
+Retorna ÚNICAMENT HTML net per a WordPress (sense etiquetes <html>, <head> ni <body>).
 """
 
     respuesta = client.chat.completions.create(
         model="gpt-4o",
         temperature=0.35,
-        response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": prompt_sistema},
             {"role": "user", "content": dossier}
         ]
     )
-    datos_json = json.loads(respuesta.choices[0].message.content)
-    html_cat = limpiar_y_formatear_html(datos_json.get("html_cat", ""))
-    html_es = limpiar_y_formatear_html(datos_json.get("html_es", ""))
-    return html_cat, html_es
+    return limpiar_y_formatear_html(respuesta.choices[0].message.content)
+
+def adaptar_noticia_es(client, html_cat):
+    prompt_sistema = """
+Actua com una periodista experimentada d'UEP! Mallorca.
+Fes una adaptació periodística ÍNTEGRA al castellà del següent article en català (sense resumir-lo ni ometre absolutament cap esdeveniment, detall, horari, preu ni enllaç).
+
+REGLES ESTRICTES:
+1. Mantén exactament tots els esdeveniments, tots els enllaços (<a href="..." target="_blank" rel="noopener noreferrer">) i la mateixa estructura de <h2> i <p>.
+2. Respecta els noms propis, espais culturals, festivals i títols originals d'obres sense traduir-los.
+3. Sense tòpics ("epicentro de la cultura", "oferta variada", "promete emocionar") i sense secció de "Datos prácticos".
+4. Utilitza EXCLUSIVAMENT HTML net (<strong> per a negretes, mai asteriscos **).
+5. Adapta també al castellà el bloc final de redacció després de l'<hr> (3 titulars màx. 60 caràcters, meta descripció màx. 140 caràcters i posts per a xarxes socials).
+
+Retorna ÚNICAMENT HTML net per a WordPress (sense etiquetes <html>, <head> ni <body>).
+"""
+
+    respuesta = client.chat.completions.create(
+        model="gpt-4o",
+        temperature=0.3,
+        messages=[
+            {"role": "system", "content": prompt_sistema},
+            {"role": "user", "content": html_cat}
+        ]
+    )
+    return limpiar_y_formatear_html(respuesta.choices[0].message.content)
 
 def enviar_borrador_wordpress(titulo, contenido_html):
-    url = "https://uepmallorca.app/wp-json/wp/v2/posts"
+    url = "[https://uepmallorca.app/wp-json/wp/v2/posts](https://uepmallorca.app/wp-json/wp/v2/posts)"
     auth = (os.environ["WP_USER"], os.environ["WP_APP_PASSWORD"])
     payload = {
         "title": titulo,
@@ -226,8 +246,10 @@ if __name__ == "__main__":
     if not eventos:
         print("No s'han trobat esdeveniments per a aquest filtre.")
     else:
-        html_cat, html_es = redactar_noticias_bilingues(eventos, instruccion)
+        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        html_cat = redactar_noticia_cat(client, eventos, instruccion)
         if html_cat:
             enviar_borrador_wordpress(f"[ESBORRANY CAT] {titulo_cat}", html_cat)
-        if html_es:
-            enviar_borrador_wordpress(f"[BORRADOR ES] {titulo_es}", html_es)
+            html_es = adaptar_noticia_es(client, html_cat)
+            if html_es:
+                enviar_borrador_wordpress(f"[BORRADOR ES] {titulo_es}", html_es)
