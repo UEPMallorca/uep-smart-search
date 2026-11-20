@@ -224,7 +224,7 @@ Retorna ÚNICAMENT HTML net per a WordPress (sense etiquetes <html>, <head> ni <
     return limpiar_y_formatear_html(respuesta.choices[0].message.content)
 
 def enviar_borrador_wordpress(titulo, contenido_html):
-    url = "[https://uepmallorca.app/wp-json/wp/v2/posts](https://uepmallorca.app/wp-json/wp/v2/posts)"
+    url = "https://" + "uepmallorca.app/wp-json/wp/v2/posts"
     auth = (os.environ["WP_USER"], os.environ["WP_APP_PASSWORD"])
     payload = {
         "title": titulo,
