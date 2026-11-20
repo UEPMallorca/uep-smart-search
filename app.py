@@ -76,3 +76,70 @@ pregunta = st.text_input(
     "Què vols saber? (Ex: concerts a Palma, teatre aquest cap de setmana, exposicions...)",
     value=pregunta_url
 )
+
+cercar_clic = st.button("Cercar")
+
+if cercar_clic or pregunta_url:
+    if pregunta:
+        with st.spinner("Cercant a l'hemeroteca i a la taquilla..."):
+            top_articles = cercar_articles_semantics(pregunta, max_noticies=8, max_entrades=6, llindar_minim=0.18)
+            data_avui = datetime.now().strftime("%d/%m/%Y")
+
+        if not top_articles:
+            st.info("No hem trobat cap notícia ni entrada relacionada amb aquesta cerca.")
+        else:
+            context_articles = ""
+            for art, puntuacio in top_articles:
+                if art.get("tipus") == "entrada":
+                    context_articles += (
+                        f"- [🎟️ VENDA D'ENTRADES]\n"
+                        f"  Títol i dades: {art['titol']}\n"
+                        f"  Detalls: {art['resum']}\n"
+                        f"  Enllaç: {art['enllac']}\n\n"
+                    )
+                else:
+                    context_articles += (
+                        f"- [📰 NOTÍCIA] (Publicada el {art['data']})\n"
+                        f"  Títol: {art['titol']}\n"
+                        f"  Resum: {art['resum']}\n"
+                        f"  Enllaç: {art['enllac']}\n\n"
+                    )
+
+            instruccions_sistema = f"""
+            Ets l'assistent cultural intel·ligent del diari UEP! Mallorca.
+            La data d'AVUI és: {data_avui}.
+
+            Respon a la pregunta de l'usuari utilitzant ÚNICAMENT els elements pertinents d'aquesta llista:
+
+            {context_articles}
+
+            Normes estrictes:
+1. Respon SEMPRE en català, amb un to clar, pràctic i periodístic.
+2. FILTRE ESTRICTE DE DATES (MOLT IMPORTANT): Compara sempre les dates reals de l'esdeveniment que surten al resum amb la data d'AVUI ({data_avui}).
+  - IGNORA paraules relatives escrites en el passat com "els propers dies", "aquest cap de setmana" o "demà" si el dia concret ja és anterior a {data_avui}.
+  - Si una funció va ser abans d'avui (per exemple, del 7 al 9 de novembre o el 14 i 15 de novembre quan avui és {data_avui}), DESCARTA-LA completament.
+  - En canvi, la data entre parèntesis "(Publicada el ...)" és només quan es va publicar l'article: si el resum diu que un cicle o obra dura fins a una data futura o és a partir d'avui, INCLOU-LA.
+3. RIGOR TEMÀTIC: Inclou només notícies el tema principal de les quals sigui el que demana l'usuari. Descarta notícies genèriques que només mencionin el tema de passada.
+4. RIGOR GEOGRÀFIC: Si l'usuari demana un municipi concret (ex: Palma), inclou els elements d'aquest municipi (incloent espais coneguts de Palma com Teatre del Mar, Teatre Principal, Teatre Sans, Espai el Tub, etc.). NO incloguis esdeveniments d'altres municipis ni inventis la ubicació si no consta.
+5. ENTRADES AMB "DIVERSES DATES": Inclou sempre les entrades que diguin "Diverses dates" si coincideixen amb el tema i el municipi.
+6. FORMAT NET I CONCÍS: Separa la resposta en dos blocs si hi ha contingut per a tots dos: **Actualitat i notícies (📰)** i **Entrades disponibles a la taquilla (🎟️)**. Utilitza UN SOL punt de llista per cada element (títol en negreta, dades essencials i l'enllaç al final). No repeteixis frases genèriques com "Esdeveniment amb venda d'entrades disponible...".
+            """
+
+            flux_resposta = client.chat.completions.create(
+                model="gpt-4o-mini",
+                temperature=0.2,
+                stream=True,
+                messages=[
+                    {"role": "system", "content": instruccions_sistema},
+                    {"role": "user", "content": pregunta}
+                ]
+            )
+
+            st.write_stream(flux_resposta)
+
+            with st.expander("🔍 Veure les fonts analitzades"):
+                for art, puntuacio in top_articles:
+                    icona = "🎟️" if art.get("tipus") == "entrada" else "📰"
+                    st.markdown(f"{icona} **{art['titol']}** ({art['data']}) — *Similitud: {puntuacio:.2f}*  \n{art['enllac']}")
+    else:
+        st.warning("Escriu una pregunta abans de fer clic.")
