@@ -32,7 +32,7 @@ jobs:
           python-version: '3.11'
 
       - name: Instal·lar llibreries
-        run: pip install openai requests
+        run: pip install openai requests beautifulsoup4
 
       - name: Executar generador
         env:
