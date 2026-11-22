@@ -46,15 +46,13 @@ Redacta una notícia periodística completa en CATALÀ i una segona versió ínt
    - Posts per a xarxes socials en català (Threads, Bluesky, Instagram i Facebook) sense "llegeix més" i amb 3-4 hashtags locals.
 """
 
-    response = client.chat.completions.create(
-        model="gpt-4o-search-preview",
-        web_search_options={"search_context_size": "high"},
-        messages=[
-            {"role": "user", "content": prompt}
-        ]
+response = client.responses.create(
+        model="gpt-4o",
+        tools=[{"type": "web_search"}],
+        input=prompt
     )
     
-    return response.choices[0].message.content, data_divendres
+    return response.output_text, data_divendres
 
 def publicar_esborrany_wp(titol, contingut_html):
     payload = {
