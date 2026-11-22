@@ -1,0 +1,33 @@
+name: Estrenes de Cinema a Mallorca (Divendres)
+
+on:
+  schedule:
+    # S'executa cada dijous a les 17:00 UTC (18:00 h a Palma a l'hivern / 19:00 h a l'estiu)
+    - cron: '0 17 * * 4'
+  workflow_dispatch: # Permet executar-ho manualment des de la pestanya Actions
+
+jobs:
+  generar-estrenes:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descarregar el repositori
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instal·lar dependències
+        run: |
+          python -m pip install --upgrade pip
+          pip install openai requests
+
+      - name: Executar el generador d'estrenes
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          WP_URL: ${{ secrets.WP_URL }}
+          WP_USER: ${{ secrets.WP_USER }}
+          WP_PASSWORD: ${{ secrets.WP_PASSWORD }}
+        run: python generador_estrenes_cinema.py
