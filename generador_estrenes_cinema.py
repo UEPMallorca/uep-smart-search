@@ -6,7 +6,7 @@ from openai import OpenAI
 
 # Configuració de variables d'entorn (comprova que coincideixin amb els Secrets de GitHub)
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-WP_URL = os.environ.get("WP_URL")
+WP_URL = os.environ.get("WP_URL") or "https://uepmallorca.app/wp-json/wp/v2/posts"
 WP_USER = os.environ.get("WP_USER")
 WP_PASSWORD = os.environ.get("WP_PASSWORD")
 CAT_CINEMA_ID = os.environ.get("CAT_CINEMA_ID", "")
