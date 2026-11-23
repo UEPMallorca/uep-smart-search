@@ -25,13 +25,33 @@ MESOS_CAT = {
     7: "juliol", 8: "agost", 9: "setembre", 10: "octubre", 11: "novembre", 12: "desembre"
 }
 
+SALAS_MUSICA = [
+    "Es Gremi (Palma)", "Auditorium de Palma", "Trui Teatre (Palma)",
+    "Teatre Principal de Palma", "Teatre Xesc Forteza (Palma)",
+    "Factoria de So (Santa Maria)", "Jazz Voyeur Club (Palma)",
+    "Auditori d'Alcúdia", "Auditori de Manacor", "Teatre Principal d'Inca",
+    "Teatre de Lloseta"
+]
+
+SALAS_TEATRO = [
+    "Teatre Principal de Palma", "Teatre del Mar (Palma)",
+    "Teatre Xesc Forteza (Palma)", "Teatre Mar i Terra (Palma)",
+    "Teatre Sans (Palma)", "Teatre Municipal Catalina Valls (Palma)",
+    "Auditorium de Palma", "Trui Teatre (Palma)",
+    "Auditori de Manacor", "Teatre Principal d'Inca",
+    "Teatre de Lloseta", "Teatre d'Artà"
+]
+
+
 def es_de_mallorca(evento):
     texto = f"{evento.get('titol', '')} {evento.get('resum', '')} {evento.get('enllac', '')}".lower()
     return not any(re.search(rf"\b{re.escape(p)}\b", texto) for p in PALABRAS_EXCLUIDAS)
 
+
 def es_agenda_previa(evento):
     titulo = evento.get("titol", "").lower()
     return any(t in titulo for t in TITULOS_IGNORAR)
+
 
 def coincide_fecha(evento, fechas_objetivo):
     texto = f"{evento.get('titol', '')} {evento.get('resum', '')}".lower()
@@ -46,6 +66,7 @@ def coincide_fecha(evento, fechas_objetivo):
         if any(p in texto for p in patrones):
             return True
     return False
+
 
 def extraer_ficha_web(url):
     try:
@@ -63,18 +84,18 @@ def extraer_ficha_web(url):
     except Exception:
         return ""
 
+
 def limpiar_y_formatear_html(html):
-    # Elimina posibles bloques ```html que devuelva el modelo
     html = re.sub(r"^```html\s*", "", html.strip(), flags=re.IGNORECASE)
     html = re.sub(r"\s*```$", "", html.strip())
-    # Convierte cualquier residuo de Markdown (**texto**) en <strong>texto</strong>
     html = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html)
-    # Fuerza que todos los enlaces se abran en una pestaña nueva
+    html = re.sub(r"\s*\[\d+(?:[\.,\s]+\d+)*\]", "", html)
     soup = BeautifulSoup(html, "html.parser")
     for a in soup.find_all("a"):
         a["target"] = "_blank"
         a["rel"] = "noopener noreferrer"
     return str(soup)
+
 
 def configurar_formato(tipo):
     hoy = datetime.now()
@@ -114,6 +135,7 @@ def configurar_formato(tipo):
         )
     raise ValueError("Tipus no vàlid")
 
+
 def cargar_eventos_enriquecidos(fechas_objetivo):
     with open("hemeroteca_vectors.json", "r", encoding="utf-8") as f:
         datos = json.load(f)
@@ -147,7 +169,45 @@ def cargar_eventos_enriquecidos(fechas_objetivo):
         })
     return enriquecidos
 
-def redactar_noticia_cat(client, eventos, instruccion_filtro):
+
+def cercar_agenda_externa(client, tipo, fechas_objetivo):
+    if tipo not in ("conciertos_semana", "teatro_semana"):
+        return ""
+
+    data_inici = fechas_objetivo[0].strftime("%d/%m/%Y")
+    data_fi = fechas_objetivo[-1].strftime("%d/%m/%Y")
+
+    if tipo == "conciertos_semana":
+        disciplina = "concerts i música en directe"
+        salas = ", ".join(SALAS_MUSICA)
+    else:
+        disciplina = "teatre, dansa, monòlegs i arts escèniques"
+        salas = ", ".join(SALAS_TEATRO)
+
+    prompt_cerca = f"""
+Cerca a internet la programació confirmada de {disciplina} a Mallorca entre el {data_inici} i el {data_fi} a les principals sales de referència:
+{salas}.
+
+Elabora un dossier informatiu en text pla amb els esdeveniments CONFIRMATS dins aquestes dates exactes (descarta qualsevol acte d'Eivissa, Menorca o Formentera, i qualsevol data fora del rang {data_inici} - {data_fi}).
+Per a cada esdeveniment trobat, indica:
+- Nom de l'artista, banda, obra o companyia.
+- Data exacta i hora (si consta).
+- Sala i municipi de Mallorca.
+- Breu descripció (2-3 frases sobre la proposta artística).
+
+No escriguis cap notícia encara, només el dossier verificat. Si d'alguna sala no hi ha programació confirmada en aquestes dates, no t'inventis res.
+"""
+
+    print(f"Cercant programació externa per a {tipo} ({data_inici} - {data_fi})...")
+    response = client.responses.create(
+        model="gpt-4o",
+        tools=[{"type": "web_search"}],
+        input=prompt_cerca
+    )
+    return response.output_text
+
+
+def redactar_noticia_cat(client, eventos, instruccion_filtro, dossier_externo=""):
     fecha_hoy = datetime.now().strftime("%d/%m/%Y")
 
     dossier = ""
@@ -160,30 +220,37 @@ def redactar_noticia_cat(client, eventos, instruccion_filtro):
             f"TEXT COMPLET DE LA PÀGINA:\n{e['fitxa_completa']}\n\n"
         )
 
+    if dossier_externo:
+        dossier += (
+            "=== PROGRAMACIÓ EXTERNA DE SALES DE REFERÈNCIA A MALLORCA ===\n"
+            f"{dossier_externo}\n\n"
+        )
+
     prompt_sistema = f"""
 Actua com una periodista jove, feminista i experimentada de la secció de cultura del diari digital UEP! Mallorca.
 Avui és {fecha_hoy}.
 OBJECTIU: {instruccion_filtro}
 
 REGLES INNEGOCIABLES:
-1. COBERTURA EXHAUSTIVA DE TAQUILLA (MOLT IMPORTANT):
-   - Has d'incloure TOTS i CADA UN dels esdeveniments marcats com a [TAQUILLA (entradas.uepmallorca.app)] que encaixin amb la data i la disciplina demanada. NO n'ometis ni un sol ni els resumeixis en excés.
-   - Afegeix també els actes culturals rellevants procedents de [NOTÍCIA (uepmallorca.app)] que tinguin lloc exactament en la data objectiu.
-   - Si un mateix esdeveniment apareix tant a TAQUILLA com a NOTÍCIA, fusiona la informació en un sol paràgraf sense repetir-lo i integra tots dos enllaços.
+1. COBERTURA EXHAUSTIVA DE TAQUILLA I INTEGRACIÓ DE SALES DE REFERÈNCIA:
+  - Has d'incloure TOTS i CADA UN dels esdeveniments marcats com a [TAQUILLA (entradas.uepmallorca.app)] que encaixin amb la data i la disciplina demanada. NO n'ometis ni un sol ni els resumeixis en excés.
+  - Afegeix també els actes rellevants procedents de [NOTÍCIA (uepmallorca.app)] i de [PROGRAMACIÓ EXTERNA DE SALES DE REFERÈNCIA A MALLORCA] que tinguin lloc exactament en el rang de dates objectiu.
+  - Si un mateix esdeveniment apareix a TAQUILLA/NOTÍCIA i també a la PROGRAMACIÓ EXTERNA, fusiona la informació en un sol paràgraf sense repetir-lo i mantén SEMPRE l'enllaç d'UEP! Mallorca.
+  - No inventis mai enllaços per als esdeveniments de la programació externa.
 2. ZERO TÒPICS, ZERO CLIXÉS I ZERO ARRANCS REPETITIUS:
-   - ESTÀ TERMINANTMENT PROHIBIT utilitzar expressions buides com "es converteix en l'epicentre de la cultura", "epicentre cultural", "amb una oferta variada", "promet emocionar", "una experiència única", "no es pot perdre" o "farà gaudir al públic".
-   - NO comencis mai amb "El dissabte [data], Mallorca...". Obre el primer paràgraf (lead) directament amb els protagonistes reals de la jornada (artistes, festivals, estrenes o espais concrets), integrant les 5W de forma natural.
+  - ESTÀ TERMINANTMENT PROHIBIT utilitzar expressions buides com "es converteix en l'epicentre de la cultura", "epicentre cultural", "amb una oferta variada", "promet emocionar", "una experiència única", "no es pot perdre" o "farà gaudir al públic".
+  - Obre el primer paràgraf (lead) directament amb els protagonistes reals de la setmana (artistes, bandes, obres o espais concrets), integrant les 5W de forma natural.
 3. ESTRUCTURA PERIODÍSTICA REAL (NO UN LLISTAT):
-   - Agrupa els esdeveniments en 3 o 4 grans blocs temàtics o geogràfics amb subtítols <h2> descriptius. NO facis un <h2> per a cada esdeveniment individual.
-   - Redacta en paràgrafs (<p>) complets i enllaçats entre si, integrant totes les dades pràctiques (hora, recinte, municipi, preu si consta) dins el propi relat.
-   - NO afegeixis cap secció de "Dades pràctiques" al final.
-   - Integra els enllaços de compra i de notícies d'UEP! de manera natural dins les frases amb <a href="..." target="_blank" rel="noopener noreferrer">...</a>.
-   - FORMAT HTML ESTRICTE: Utilitza EXCLUSIVAMENT etiquetes HTML (<strong>...</strong>) per a les negretes. PROHIBIT fer servir asteriscos de Markdown (**). Aplica <strong> només a noms clau, municipis, espais culturals i dates.
+  - Agrupa els esdeveniments en 3 o 4 grans blocs temàtics o geogràfics amb subtítols <h2> descriptius. NO facis un <h2> per a cada esdeveniment individual.
+  - Redacta en paràgrafs (<p>) complets i enllaçats entre si, integrant totes les dades pràctiques (dia, hora, recinte, municipi, preu si consta) dins el propi relat.
+  - NO afegeixis cap secció de "Dades pràctiques" al final.
+  - Integra els enllaços de compra i de notícies d'UEP! de manera natural dins les frases amb <a href="..." target="_blank" rel="noopener noreferrer">...</a>.
+  - FORMAT HTML ESTRICTE: Utilitza EXCLUSIVAMENT etiquetes HTML (<strong>...</strong>) per a les negretes. PROHIBIT fer servir asteriscos de Markdown (**) i PROHIBIT cites numèriques tipus [1]. Aplica <strong> només a noms clau, municipis, espais culturals i dates.
 4. RIGOR ABSOLUT: No inventis cap dada. Respecta els noms propis i títols originals sense traduir-los. Descarta qualsevol esdeveniment d'Eivissa, Menorca o Formentera.
 5. BLOC DE REDACCIÓ AL FINAL (separat per <hr>):
-   - 3 propostes de titular (màx. 60 caràcters): 1) Periodístic, 2) Google Discover, 3) SEO.
-   - Meta descripció (màx. 140 caràcters).
-   - Posts per a xarxes: Threads i Bluesky (màx. 280 caràcters), Instagram i Facebook (to natural, 3-4 hashtags locals).
+  - 3 propostes de titular (màx. 60 caràcters): 1) Periodístic, 2) Google Discover, 3) SEO.
+  - Meta descripció (màx. 140 caràcters).
+  - Posts per a xarxes: Threads i Bluesky (màx. 280 caràcters), Instagram i Facebook (to natural, 3-4 hashtags locals).
 
 Retorna ÚNICAMENT HTML net per a WordPress (sense etiquetes <html>, <head> ni <body>).
 """
@@ -197,6 +264,7 @@ Retorna ÚNICAMENT HTML net per a WordPress (sense etiquetes <html>, <head> ni <
         ]
     )
     return limpiar_y_formatear_html(respuesta.choices[0].message.content)
+
 
 def adaptar_noticia_es(client, html_cat):
     prompt_sistema = """
@@ -223,6 +291,7 @@ Retorna ÚNICAMENT HTML net per a WordPress (sense etiquetes <html>, <head> ni <
     )
     return limpiar_y_formatear_html(respuesta.choices[0].message.content)
 
+
 def enviar_borrador_wordpress(titulo, contenido_html):
     url = "https://" + "uepmallorca.app/wp-json/wp/v2/posts"
     auth = (os.environ["WP_USER"], os.environ["WP_APP_PASSWORD"])
@@ -235,6 +304,7 @@ def enviar_borrador_wordpress(titulo, contenido_html):
     resp.raise_for_status()
     print(f"Esborrany creat correctament! [{titulo}] ID: {resp.json().get('id')}")
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--tipus", required=True, choices=["sabado", "domingo", "conciertos_semana", "teatro_semana"])
@@ -242,12 +312,13 @@ if __name__ == "__main__":
 
     titulo_cat, titulo_es, instruccion, fechas = configurar_formato(args.tipus)
     eventos = cargar_eventos_enriquecidos(fechas)
+    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    dossier_externo = cercar_agenda_externa(client, args.tipus, fechas)
 
-    if not eventos:
+    if not eventos and not dossier_externo:
         print("No s'han trobat esdeveniments per a aquest filtre.")
     else:
-        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-        html_cat = redactar_noticia_cat(client, eventos, instruccion)
+        html_cat = redactar_noticia_cat(client, eventos, instruccion, dossier_externo)
         if html_cat:
             enviar_borrador_wordpress(f"[ESBORRANY CAT] {titulo_cat}", html_cat)
             html_es = adaptar_noticia_es(client, html_cat)
