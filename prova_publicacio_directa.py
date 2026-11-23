@@ -70,10 +70,10 @@ def generar_i_pujar_imatge(prompt_imatge, data_divendres, alt_text):
     try:
         print("Generant imatge destacada editorial...")
         img_resp = client.images.generate(
-            model="dall-e-3",
+            model="gpt-image-1",
             prompt=prompt_imatge,
-            size="1792x1024",
-            quality="standard",
+            size="1536x1024",
+            quality="medium",
             n=1
         )
         img_data = img_resp.data[0]
