@@ -74,10 +74,15 @@ def generar_i_pujar_imatge(prompt_imatge, data_divendres, alt_text):
             prompt=prompt_imatge,
             size="1792x1024",
             quality="standard",
-            response_format="b64_json",
             n=1
         )
-        img_bytes = base64.b64decode(img_resp.data[0].b64_json)
+        img_data = img_resp.data[0]
+        if getattr(img_data, "b64_json", None):
+            img_bytes = base64.b64decode(img_data.b64_json)
+        elif getattr(img_data, "url", None):
+            img_bytes = requests.get(img_data.url, timeout=30).content
+        else:
+            raise ValueError("No s'ha rebut cap imatge d'OpenAI.")
 
         data_slug = data_divendres.replace("/", "-")
         filename = f"estrenes-cinema-mallorca-{data_slug}.png"
@@ -97,7 +102,6 @@ def generar_i_pujar_imatge(prompt_imatge, data_divendres, alt_text):
         r.raise_for_status()
         media_id = r.json()["id"]
 
-        # Afegeix el text alternatiu (SEO) a la imatge pujada
         requests.post(
             f"{WP_BASE_URL}/media/{media_id}",
             json={"alt_text": alt_text},
@@ -109,7 +113,6 @@ def generar_i_pujar_imatge(prompt_imatge, data_divendres, alt_text):
     except Exception as e:
         print(f"Avís: no s'ha pogut generar/pujar la imatge ({e}).")
         return IMATGE_RECURS_ID
-
 
 def cercar_dossier_estrenes(data_divendres):
     prompt_cerca = f"""
