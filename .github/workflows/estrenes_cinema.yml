@@ -2,8 +2,8 @@ name: Estrenes de Cinema a Mallorca (Divendres)
 
 on:
   schedule:
-    # S'executa cada dijous a les 17:00 UTC (18:00 h a Palma a l'hivern / 19:00 h a l'estiu)
-    - cron: '0 17 * * 4'
+    # S'executa cada dijous a les 9:00 UTC (10:00 h a Palma a l'hivern / 11:00 h a l'estiu)
+    - cron: '0 9 * * 4'
   workflow_dispatch:
 
 jobs:
