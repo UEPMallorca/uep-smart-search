@@ -25,21 +25,50 @@ MESOS_CAT = {
     7: "juliol", 8: "agost", 9: "setembre", 10: "octubre", 11: "novembre", 12: "desembre"
 }
 
-SALAS_MUSICA = [
-    "Es Gremi (Palma)", "Auditorium de Palma", "Trui Teatre (Palma)",
-    "Teatre Principal de Palma", "Teatre Xesc Forteza (Palma)",
-    "Factoria de So (Santa Maria)", "Jazz Voyeur Club (Palma)",
-    "Auditori d'Alcúdia", "Auditori de Manacor", "Teatre Principal d'Inca",
-    "Teatre de Lloseta"
+MESOS_ES = {
+    1: "enero", 2: "febrero", 3: "marzo", 4: "abril", 5: "mayo", 6: "junio",
+    7: "julio", 8: "agosto", 9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre"
+}
+
+SALAS_MUSICA_PALMA = [
+    "Es Gremi", "Auditorium de Palma", "Trui Teatre",
+    "Teatre Principal de Palma", "Teatre Xesc Forteza",
+    "Jazz Voyeur Club", "La Movida Cafe Concierto", "CaixaForum Palma",
+    "Conservatori Superior de Música"
 ]
 
-SALAS_TEATRO = [
-    "Teatre Principal de Palma", "Teatre del Mar (Palma)",
-    "Teatre Xesc Forteza (Palma)", "Teatre Mar i Terra (Palma)",
-    "Teatre Sans (Palma)", "Teatre Municipal Catalina Valls (Palma)",
-    "Auditorium de Palma", "Trui Teatre (Palma)",
-    "Auditori de Manacor", "Teatre Principal d'Inca",
-    "Teatre de Lloseta", "Teatre d'Artà"
+SALAS_MUSICA_PART_FORANA = [
+    "Factoria de So (Santa Maria)", "Auditori d'Alcúdia", "Auditori de Manacor",
+    "Teatre Principal d'Inca", "Teatre de Lloseta", "Auditori de Porreres",
+    "Auditori Sa Màniga (Cala Millor)", "Teatre d'Artà", "Teatre de Petra",
+    "Espai 36 (Sant Llorenç)"
+]
+
+SALAS_TEATRO_PALMA = [
+    "Teatre Principal de Palma", "Teatre del Mar", "Teatre Xesc Forteza",
+    "Teatre Mar i Terra", "Teatre Sans", "Teatre Municipal Catalina Valls",
+    "Auditorium de Palma", "Trui Teatre", "Sala Assaig"
+]
+
+SALAS_TEATRO_PART_FORANA = [
+    "Auditori de Manacor", "Teatre Principal d'Inca", "Teatre de Lloseta",
+    "Teatre d'Artà", "Auditori d'Alcúdia", "Auditori de Porreres",
+    "Auditori Sa Màniga (Cala Millor)", "Teatre de Petra", "Teatre de Capdepera",
+    "Auditori de Peguera", "Teatre Sa Teulera (Andratx)"
+]
+
+ESPAIS_AGENDA_PALMA = [
+    "Teatre Principal de Palma", "Auditorium de Palma", "Es Gremi",
+    "Teatre Xesc Forteza", "Teatre del Mar", "Teatre Mar i Terra",
+    "Es Baluard", "Casal Solleric", "CaixaForum Palma", "Fundació Miró Mallorca",
+    "PalmaCultura"
+]
+
+ESPAIS_AGENDA_PART_FORANA = [
+    "Auditori de Manacor", "Teatre Principal d'Inca", "Auditori d'Alcúdia",
+    "Teatre de Lloseta", "Teatre d'Artà", "Auditori de Porreres",
+    "Auditori Sa Màniga (Cala Millor)", "Factoria de So (Santa Maria)",
+    "ArtsMallorca"
 ]
 
 
@@ -56,12 +85,20 @@ def es_agenda_previa(evento):
 def coincide_fecha(evento, fechas_objetivo):
     texto = f"{evento.get('titol', '')} {evento.get('resum', '')}".lower()
     for f in fechas_objetivo:
+        mes_cat = MESOS_CAT[f.month]
+        mes_es = MESOS_ES[f.month]
+        prep = "d'" if f.month in (4, 8, 10) else "de "
         patrones = [
             f.strftime("%d/%m/%Y"),
             f.strftime("%d/%m"),
-            f"{f.day} de {MESOS_CAT[f.month]}",
-            f"{f.day:02d} de {MESOS_CAT[f.month]}",
-            f"{f.day} {MESOS_CAT[f.month][:3]}"
+            f.strftime("%Y-%m-%d"),
+            f"{f.day} {prep}{mes_cat}",
+            f"{f.day:02d} {prep}{mes_cat}",
+            f"{f.day} de {mes_cat}",
+            f"{f.day} {mes_cat}",
+            f"{f.day} {mes_cat[:3]}",
+            f"{f.day} de {mes_es}",
+            f"{f.day:02d} de {mes_es}"
         ]
         if any(p in texto for p in patrones):
             return True
@@ -153,7 +190,7 @@ def cargar_eventos_enriquecidos(fechas_objetivo):
         and coincide_fecha(a, fechas_objetivo)
     ]
 
-    seleccion = entradas[:15] + noticias[:10]
+    seleccion = entradas[:30] + noticias[:20]
     enriquecidos = []
 
     for ev in seleccion:
@@ -170,41 +207,54 @@ def cargar_eventos_enriquecidos(fechas_objetivo):
     return enriquecidos
 
 
-def cercar_agenda_externa(client, tipo, fechas_objetivo):
-    if tipo not in ("conciertos_semana", "teatro_semana"):
-        return ""
-
-    data_inici = fechas_objetivo[0].strftime("%d/%m/%Y")
-    data_fi = fechas_objetivo[-1].strftime("%d/%m/%Y")
-
-    if tipo == "conciertos_semana":
-        disciplina = "concerts i música en directe"
-        salas = ", ".join(SALAS_MUSICA)
-    else:
-        disciplina = "teatre, dansa, monòlegs i arts escèniques"
-        salas = ", ".join(SALAS_TEATRO)
-
+def _fer_cerca_zona(client, disciplina, rang_dates, zona, llista_sales):
+    salas_str = ", ".join(llista_sales)
     prompt_cerca = f"""
-Cerca a internet la programació confirmada de {disciplina} a Mallorca entre el {data_inici} i el {data_fi} a les principals sales de referència:
-{salas}.
+Fes una cerca exhaustiva a internet de la programació confirmada de {disciplina} a {zona} (Mallorca) {rang_dates}.
+Revisa especialment aquests espais i agendes culturals: {salas_str}.
 
-Elabora un dossier informatiu en text pla amb els esdeveniments CONFIRMATS dins aquestes dates exactes (descarta qualsevol acte d'Eivissa, Menorca o Formentera, i qualsevol data fora del rang {data_inici} - {data_fi}).
-Per a cada esdeveniment trobat, indica:
-- Nom de l'artista, banda, obra o companyia.
+Objectiu: recopilar el màxim nombre d'esdeveniments CONFIRMATS (idealment entre 6 i 10 actes diferents) dins aquestes dates exactes. Descarta qualsevol acte d'Eivissa, Menorca o Formentera, i qualsevol data fora del rang indicat.
+
+Per a CADA esdeveniment trobat, indica:
+- Nom de l'artista, banda, obra, exposició o companyia.
 - Data exacta i hora (si consta).
 - Sala i municipi de Mallorca.
-- Breu descripció (2-3 frases sobre la proposta artística).
+- Breu descripció (2 frases sobre la proposta artística).
 
 No escriguis cap notícia encara, només el dossier verificat. Si d'alguna sala no hi ha programació confirmada en aquestes dates, no t'inventis res.
 """
-
-    print(f"Cercant programació externa per a {tipo} ({data_inici} - {data_fi})...")
+    print(f"Cercant programació externa [{zona}] ({rang_dates})...")
     response = client.responses.create(
         model="gpt-4o",
         tools=[{"type": "web_search"}],
         input=prompt_cerca
     )
     return response.output_text
+
+
+def cercar_agenda_externa(client, tipo, fechas_objetivo):
+    if len(fechas_objetivo) == 1:
+        rang_dates = f"el dia {fechas_objetivo[0].strftime('%d/%m/%Y')}"
+    else:
+        rang_dates = f"entre el {fechas_objetivo[0].strftime('%d/%m/%Y')} i el {fechas_objetivo[-1].strftime('%d/%m/%Y')}"
+
+    if tipo == "conciertos_semana":
+        disciplina = "concerts i música en directe"
+        sales_palma = SALAS_MUSICA_PALMA
+        sales_forana = SALAS_MUSICA_PART_FORANA
+    elif tipo == "teatro_semana":
+        disciplina = "teatre, dansa, monòlegs i arts escèniques"
+        sales_palma = SALAS_TEATRO_PALMA
+        sales_forana = SALAS_TEATRO_PART_FORANA
+    else:
+        disciplina = "cultura (concerts, teatre, dansa, exposicions, literatura i cinema)"
+        sales_palma = ESPAIS_AGENDA_PALMA
+        sales_forana = ESPAIS_AGENDA_PART_FORANA
+
+    dossier_palma = _fer_cerca_zona(client, disciplina, rang_dates, "Palma", sales_palma)
+    dossier_forana = _fer_cerca_zona(client, disciplina, rang_dates, "la Part Forana de Mallorca", sales_forana)
+
+    return f"--- PALMA ---\n{dossier_palma}\n\n--- PART FORANA ---\n{dossier_forana}"
 
 
 def redactar_noticia_cat(client, eventos, instruccion_filtro, dossier_externo=""):
@@ -234,7 +284,7 @@ OBJECTIU: {instruccion_filtro}
 REGLES INNEGOCIABLES:
 1. COBERTURA EXHAUSTIVA DE TAQUILLA I INTEGRACIÓ DE SALES DE REFERÈNCIA:
   - Has d'incloure TOTS i CADA UN dels esdeveniments marcats com a [TAQUILLA (entradas.uepmallorca.app)] que encaixin amb la data i la disciplina demanada. NO n'ometis ni un sol ni els resumeixis en excés.
-  - Afegeix també els actes rellevants procedents de [NOTÍCIA (uepmallorca.app)] i de [PROGRAMACIÓ EXTERNA DE SALES DE REFERÈNCIA A MALLORCA] que tinguin lloc exactament en el rang de dates objectiu.
+  - Afegeix també TOTS els actes rellevants procedents de [NOTÍCIA (uepmallorca.app)] i de [PROGRAMACIÓ EXTERNA DE SALES DE REFERÈNCIA A MALLORCA] que tinguin lloc exactament en el rang de dates objectiu.
   - Si un mateix esdeveniment apareix a TAQUILLA/NOTÍCIA i també a la PROGRAMACIÓ EXTERNA, fusiona la informació en un sol paràgraf sense repetir-lo i mantén SEMPRE l'enllaç d'UEP! Mallorca.
   - No inventis mai enllaços per als esdeveniments de la programació externa.
 2. ZERO TÒPICS, ZERO CLIXÉS I ZERO ARRANCS REPETITIUS:
