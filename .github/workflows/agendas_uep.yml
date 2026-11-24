@@ -15,10 +15,12 @@ on:
           - teatro_semana
           - exposiciones_semana
   schedule:
-    # Dilluns a les 07:00 UTC (08:00 hora Palma) -> Concerts i Teatre de la setmana
+    # Dilluns a les 07:00 UTC (08:00 hora Palma) -> Concerts de la setmana
     - cron: '0 7 * * 1'
-    # Dimarts a les 07:00 UTC -> Exposicions de la setmana
+    # Dimarts a les 07:00 UTC -> Teatre de la setmana
     - cron: '0 7 * * 2'
+    # Dimecres a les 07:00 UTC -> Exposicions de la setmana
+    - cron: '0 7 * * 3'
     # Divendres a les 07:00 UTC -> Agenda del dissabte
     - cron: '0 7 * * 5'
     # Dissabte a les 07:00 UTC -> Agenda del diumenge
@@ -47,8 +49,9 @@ jobs:
             python generador_agenda.py --tipus ${{ github.event.inputs.tipus }}
           elif [ "$(date +%u)" == "1" ]; then
             python generador_agenda.py --tipus conciertos_semana
-            python generador_agenda.py --tipus teatro_semana
           elif [ "$(date +%u)" == "2" ]; then
+            python generador_agenda.py --tipus teatro_semana
+          elif [ "$(date +%u)" == "3" ]; then
             python generador_agenda.py --tipus exposiciones_semana
           elif [ "$(date +%u)" == "5" ]; then
             python generador_agenda.py --tipus sabado
