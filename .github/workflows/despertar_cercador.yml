@@ -1,0 +1,45 @@
+name: Despertar Cercador IA (Streamlit)
+
+on:
+  schedule:
+    - cron: '0 */12 * * *' # S'executa automàticament cada 12 hores
+  workflow_dispatch:       # També et permet llançar-lo a mà quan vulguis
+
+jobs:
+  despertar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instal·lar navegador automàtic (Playwright)
+        run: |
+          pip install playwright
+          playwright install chromium
+
+      - name: Visitar i despertar el cercador
+        run: |
+          python -c "
+          from playwright.sync_api import sync_playwright
+
+          with sync_playwright() as p:
+              browser = p.chromium.launch()
+              page = browser.new_page()
+              print('Visitant https://uep-smart-search.streamlit.app/ ...')
+              page.goto('https://uep-smart-search.streamlit.app/', wait_until='networkidle', timeout=60000)
+              page.wait_for_timeout(5000)
+
+              boto = page.get_by_role('button', name='Yes, get this app back up!')
+              if boto.is_visible():
+                  print('App adormida detectada. Pulsant el botó per despertar-la...')
+                  boto.click()
+                  page.wait_for_timeout(30000)
+                  print('Cercador despertat correctament!')
+              else:
+                  print('El cercador ja estava despert i actiu!')
+
+              browser.close()
+          "
