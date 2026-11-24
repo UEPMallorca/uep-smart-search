@@ -72,7 +72,7 @@ GALERIES_ART_PALMA = [
 ]
 
 SALAS_EXPOSICIONS_PART_FORANA = [
-    "CCA Andratx", "Museu Sa Bassa Blanca (Alcúdia)",
+    "CCA Andratx (ccandratx.eu)", "Museu Sa Bassa Blanca (Alcúdia)",
     "Fundació Toni Catany (Llucmajor)", "Casal de Cultura Can Gelabert (Binissalem)",
     "Galeria Maior (Pollença)", "Museu d'Art Contemporani de sa Pobla (Can Planes)",
     "Claustre de Sant Domingo (Pollença)", "Museu d'Història de Manacor",
@@ -90,7 +90,7 @@ ESPAIS_AGENDA_PART_FORANA = [
     "Auditori de Manacor", "Teatre Principal d'Inca", "Auditori d'Alcúdia",
     "Teatre de Lloseta", "Teatre d'Artà", "Auditori de Porreres",
     "Auditori Sa Màniga (Cala Millor)", "Factoria de So (Santa Maria)",
-    "CCA Andratx", "ArtsMallorca"
+    "CCA Andratx (ccandratx.eu)"
 ]
 
 
@@ -203,9 +203,52 @@ def configurar_formato(tipo):
     raise ValueError("Tipus no vàlid")
 
 
+def cargar_noticias_recientes_wp(fechas_objetivo):
+    """Consulta en directe les darreres notícies publicades a uepmallorca.app (incloent les d'avui mateix)."""
+    enriquecidos_wp = []
+    try:
+        url = "https://uepmallorca.app/wp-json/wp/v2/posts"
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; UEPMallorcaBot/1.0)"}
+        params = {"per_page": 40, "status": "publish", "orderby": "date", "order": "desc"}
+        r = requests.get(url, headers=headers, params=params, timeout=20)
+        if r.status_code != 200:
+            print(f"Avís: no s'han pogut llegir les notícies recents de WP (status {r.status_code}).")
+            return []
+
+        for post in r.json():
+            titol = BeautifulSoup(post.get("title", {}).get("rendered", ""), "html.parser").get_text(strip=True)
+            enllac = post.get("link", "")
+            contingut_html = post.get("content", {}).get("rendered", "")
+            texto_completo = BeautifulSoup(contingut_html, "html.parser").get_text(separator="\n", strip=True)
+            candidato = {"titol": titol, "resum": texto_completo, "enllac": enllac}
+
+            if es_agenda_previa(candidato) or not es_de_mallorca(candidato):
+                continue
+            if coincide_fecha(candidato, fechas_objetivo):
+                print(f"Llegint [NOTÍCIA RECENT UEP!]: {titol} -> {enllac}")
+                enriquecidos_wp.append({
+                    "origen": "NOTÍCIA (uepmallorca.app)",
+                    "titol": titol,
+                    "resum": texto_completo[:350],
+                    "enllac": enllac,
+                    "fitxa_completa": texto_completo[:2500]
+                })
+    except Exception as e:
+        print(f"Avís llegint notícies recents de WP: {e}")
+    return enriquecidos_wp
+
+
 def cargar_eventos_enriquecidos(fechas_objetivo):
-    with open("hemeroteca_vectors.json", "r", encoding="utf-8") as f:
-        datos = json.load(f)
+    # 1. Primer consultam en temps real les notícies publicades a uepmallorca.app (incloent les d'avui)
+    enriquecidos = cargar_noticias_recientes_wp(fechas_objetivo)
+    urls_vistes = {ev["enllac"].rstrip("/") for ev in enriquecidos if ev.get("enllac")}
+
+    # 2. Després completam amb l'hemeroteca local i la taquilla d'entrades
+    try:
+        with open("hemeroteca_vectors.json", "r", encoding="utf-8") as f:
+            datos = json.load(f)
+    except FileNotFoundError:
+        datos = []
 
     entradas = [
         a for a in datos
@@ -221,17 +264,21 @@ def cargar_eventos_enriquecidos(fechas_objetivo):
     ]
 
     seleccion = entradas[:30] + noticias[:20]
-    enriquecidos = []
 
     for ev in seleccion:
+        enllac = ev.get("enllac", "")
+        if enllac and enllac.rstrip("/") in urls_vistes:
+            continue
+        if enllac:
+            urls_vistes.add(enllac.rstrip("/"))
         origen = "TAQUILLA (entradas.uepmallorca.app)" if ev.get("tipus") == "entrada" else "NOTÍCIA (uepmallorca.app)"
-        print(f"Llegint [{origen}]: {ev.get('titol')} -> {ev.get('enllac')}")
-        texto_web = extraer_ficha_web(ev.get("enllac", ""))
+        print(f"Llegint [{origen}]: {ev.get('titol')} -> {enllac}")
+        texto_web = extraer_ficha_web(enllac)
         enriquecidos.append({
             "origen": origen,
             "titol": ev.get("titol", ""),
             "resum": ev.get("resum", ""),
-            "enllac": ev.get("enllac", ""),
+            "enllac": enllac,
             "fitxa_completa": texto_web
         })
     return enriquecidos
@@ -241,14 +288,18 @@ def _fer_cerca_zona(client, disciplina, rang_dates, zona, llista_sales):
     salas_str = ", ".join(llista_sales)
     prompt_cerca = f"""
 Fes una cerca exhaustiva a internet de la programació confirmada de {disciplina} a {zona} (Mallorca) {rang_dates}.
-Revisa especialment aquests espais i agendes culturals: {salas_str}.
+Revisa especialment les webs oficials d'aquests espais culturals: {salas_str}.
 
 Objectiu: recopilar el màxim nombre d'esdeveniments o exposicions CONFIRMATS (idealment entre 6 i 10 propostes diferents) vigents o programats dins aquestes dates exactes. Descarta qualsevol acte d'Eivissa, Menorca o Formentera, i qualsevol proposta ja finalitzada o fora del rang indicat.
+
+REGLA ESTRICTA DE FONTS:
+- Prioritza sempre la informació de les webs oficials de les sales, museus, galeries o ajuntaments.
+- PROHIBIT incloure referències, atribucions ni frases com "Més informació a..." apuntant a altres mitjans de comunicació, revistes o portals culturals externs (mai bonart.cat, diariodemallorca, ultimahora, dbalears, arabalears, mallorcadiario, artsmallorca, etc.).
 
 Per a CADA proposta trobada, indica:
 - Nom de l'artista, banda, obra, exposició o companyia.
 - Data exacta (o dates de vigència, ex: fins al 15 de gener) i hora si consta.
-- Sala, museu o galeria i municipi de Mallorca.
+- Sala, museu o galeria i municipi de Mallorca (i la seva web oficial únicament si és la del propi espai cultural).
 - Breu descripció (2 frases sobre la proposta artística).
 
 No escriguis cap notícia encara, només el dossier verificat. Si d'algun espai no hi ha programació confirmada en aquestes dates, no t'inventis res.
@@ -323,11 +374,11 @@ Avui és {fecha_hoy}.
 OBJECTIU: {instruccion_filtro}
 
 REGLES INNEGOCIABLES:
-1. COBERTURA EXHAUSTIVA DE TAQUILLA I INTEGRACIÓ DE SALES DE REFERÈNCIA:
-  - Has d'incloure TOTS i CADA UN dels esdeveniments marcats com a [TAQUILLA (entradas.uepmallorca.app)] que encaixin amb la data i la disciplina demanada. NO n'ometis ni un sol ni els resumeixis en excés.
-  - Afegeix també TOTS els actes rellevants procedents de [NOTÍCIA (uepmallorca.app)] i de [PROGRAMACIÓ EXTERNA DE SALES DE REFERÈNCIA A MALLORCA] que tinguin lloc o estiguin vigents en el rang de dates objectiu.
-  - Si un mateix esdeveniment apareix a TAQUILLA/NOTÍCIA i també a la PROGRAMACIÓ EXTERNA, fusiona la informació en un sol paràgraf sense repetir-lo i mantén SEMPRE l'enllaç d'UEP! Mallorca.
-  - No inventis mai enllaços per als esdeveniments de la programació externa.
+1. PRIORITAT ABSOLUTA A UEP! MALLORCA I ZERO CITACIONS D'ALTRES MITJANS:
+  - Has d'incloure TOTS i CADA UN dels esdeveniments marcats com a [TAQUILLA (entradas.uepmallorca.app)] i [NOTÍCIA (uepmallorca.app)] que encaixin amb la data i la disciplina demanada. NO n'ometis ni un sol ni els resumeixis en excés.
+  - Afegeix també TOTS els actes rellevants procedents de [PROGRAMACIÓ EXTERNA DE SALES DE REFERÈNCIA A MALLORCA] que tinguin lloc o estiguin vigents en el rang de dates objectiu.
+  - Si un mateix esdeveniment apareix a TAQUILLA/NOTÍCIA d'UEP! i també a la PROGRAMACIÓ EXTERNA, fusiona la informació en un sol paràgraf sense repetir-lo i mantén SEMPRE l'enllaç d'UEP! Mallorca.
+  - PROHIBIT CITAR O ENLLAÇAR ALTRES MITJANS DE COMUNICACIÓ O PORTALS CULTURALS EXTERNS: no escriguis mai "Més informació a bonart.cat", "segons Diario de Mallorca", ni esmentis cap altre diari, revista o agenda externa. Si un acte no té notícia a UEP! Mallorca, remet únicament al nom del museu, sala o galeria (o a la seva web oficial si apareix verificada al dossier). No inventis mai enllaços.
 2. ZERO TÒPICS, ZERO CLIXÉS I ZERO ARRANCS REPETITIUS:
   - ESTÀ TERMINANTMENT PROHIBIT utilitzar expressions buides com "es converteix en l'epicentre de la cultura", "epicentre cultural", "amb una oferta variada", "promet emocionar", "una experiència única", "no es pot perdre" o "farà gaudir al públic".
   - Obre el primer paràgraf (lead) directament amb els protagonistes reals de la setmana (artistes, bandes, obres, exposicions o espais concrets), integrant les 5W de forma natural.
@@ -365,9 +416,10 @@ Fes una adaptació periodística ÍNTEGRA al castellà del següent article en c
 REGLES ESTRICTES:
 1. Mantén exactament tots els esdeveniments, tots els enllaços (<a href="..." target="_blank" rel="noopener noreferrer">) i la mateixa estructura de <h2> i <p>.
 2. Respecta els noms propis, espais culturals, festivals i títols originals d'obres sense traduir-los.
-3. Sense tòpics ("epicentro de la cultura", "oferta variada", "promete emocionar") i sense secció de "Datos prácticos".
-4. Utilitza EXCLUSIVAMENT HTML net (<strong> per a negretes, mai asteriscos **).
-5. Adapta també al castellà el bloc final de redacció després de l'<hr> (3 titulars màx. 60 caràcters, meta descripció màx. 140 caràcters i posts per a xarxes socials).
+3. PROHIBIT citar o mencionar altres mitjans de comunicació o portals externs (mai "Más información en bonart.cat" ni similars).
+4. Sense tòpics ("epicentro de la cultura", "oferta variada", "promete emocionar", "visión única") i sense secció de "Datos prácticos".
+5. Utilitza EXCLUSIVAMENT HTML net (<strong> per a negretes, mai asteriscos **).
+6. Adapta també al castellà el bloc final de redacció després de l'<hr> (3 titulars màx. 60 caràcters, meta descripció màx. 140 caràcters i posts per a xarxes socials).
 
 Retorna ÚNICAMENT HTML net per a WordPress (sense etiquetes <html>, <head> ni <body>).
 """
