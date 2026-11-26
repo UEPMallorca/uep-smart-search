@@ -72,26 +72,31 @@ def _consultar_api_wp(terme, max_resultats):
     params = {
         "search": terme,
         "per_page": max_resultats,
-        "status": "publish",
         "_fields": "title,excerpt,link,date"
     }
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; UEPSmartSearch/1.0)"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json"
+    }
     r = requests.get(url, params=params, headers=headers, timeout=10)
     if r.status_code != 200:
-        return []
-    return r.json()
+        return [], f"Error WP HTTP {r.status_code}"
+    return r.json(), None
 
 @st.cache_data(ttl=600, show_spinner=False)
 def cercar_hemeroteca_wp(pregunta, max_resultats=10):
     try:
         terme = pregunta.strip()
-        posts = _consultar_api_wp(terme, max_resultats)
+        posts, error = _consultar_api_wp(terme, max_resultats)
 
         # Si la pregunta és una frase llarga i WP no troba coincidència exacta, reintentam amb paraules clau
-        if not posts:
+        if not posts and not error:
             claus = extreure_paraules_clau(terme)
             if claus and claus != terme.lower():
-                posts = _consultar_api_wp(claus, max_resultats)
+                posts, error = _consultar_api_wp(claus, max_resultats)
+
+        if error:
+            return [], error
 
         resultats = []
         for p in posts:
@@ -109,11 +114,11 @@ def cercar_hemeroteca_wp(pregunta, max_resultats=10):
                     "data": data_fmt,
                     "tipus": "noticia_wp"
                 },
-                None  # Sense puntuació vectorial (resultat directe de l'hemeroteca WP)
+                None
             ))
-        return resultats
-    except Exception:
-        return []
+        return resultats, None
+    except Exception as e:
+        return [], str(e)
 
 # 6. Cerca híbrida: WordPress en directe + Vectors semàntics + Taquilla
 def cercar_hibrid(pregunta, max_wp=10, max_noticies_vec=6, max_entrades=6, llindar_minim=0.18, nomes_entrades=False):
@@ -127,7 +132,10 @@ def cercar_hibrid(pregunta, max_wp=10, max_noticies_vec=6, max_entrades=6, llind
         max_entrades = 10
 
     # A) Resultats en directe de tota l'hemeroteca de WordPress
-    resultats_wp = cercar_hemeroteca_wp(pregunta, max_resultats=max_wp) if max_wp > 0 else []
+    if max_wp > 0:
+        resultats_wp, wp_error = cercar_hemeroteca_wp(pregunta, max_resultats=max_wp)
+    else:
+        resultats_wp, wp_error = [], None
 
     # B) Resultats semàntics i entrades de taquilla
     noticies_vec = []
@@ -161,7 +169,7 @@ def cercar_hibrid(pregunta, max_wp=10, max_noticies_vec=6, max_entrades=6, llind
             urls_vistes.add(url_neta)
         combinats.append((art, punt))
 
-    return combinats
+    return combinats, wp_error
 
 # 7. Estat inicial (suport per a ?q= des d'uepmallorca.app i botons ràpids)
 pregunta_url = st.query_params.get("q", "")
@@ -204,7 +212,7 @@ if cercar_clic:
 if st.session_state.llancar_cerca:
     if pregunta:
         with st.spinner("Cercant a l'hemeroteca completa d'UEP! Mallorca i a la taquilla..."):
-            top_articles = cercar_hibrid(
+            top_articles, wp_error = cercar_hibrid(
                 pregunta,
                 max_wp=10,
                 max_noticies_vec=6,
@@ -216,6 +224,8 @@ if st.session_state.llancar_cerca:
 
         if not top_articles:
             st.info("No hem trobat cap notícia ni entrada relacionada amb aquesta cerca.")
+            if wp_error:
+                st.caption(f"⚠️ Avís connexió hemeroteca WP: {wp_error}")
         else:
             context_articles = ""
             for art, puntuacio in top_articles:
@@ -267,6 +277,8 @@ if st.session_state.llancar_cerca:
             st.write_stream(flux_resposta)
 
             with st.expander("🔍 Veure les fonts analitzades"):
+                if wp_error:
+                    st.caption(f"⚠️ Avís connexió hemeroteca WP: {wp_error}")
                 for art, puntuacio in top_articles:
                     icona = "🎟️" if art.get("tipus") == "entrada" else "📰"
                     origen = "Hemeroteca WP" if puntuacio is None else f"Similitud: {puntuacio:.2f}"
