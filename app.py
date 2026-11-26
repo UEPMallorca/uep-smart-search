@@ -1,10 +1,10 @@
 import os
 import re
-import html
+import gzip
 import json
+import unicodedata
 from datetime import datetime
 import numpy as np
-import requests
 import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -15,16 +15,21 @@ st.set_page_config(page_title="UEP! Smart Search", page_icon="🕷️")
 st.title("🕷️ UEP! Smart Search")
 st.write("El cercador cultural intel·ligent de Mallorca (Hemeroteca completa i Taquilla).")
 
-# Paraules buides per netejar preguntes llargues abans de consultar WordPress
+# Paraules buides per netejar preguntes llargues
 STOPWORDS = {
     "el", "la", "els", "les", "un", "una", "uns", "unes", "de", "del", "dels",
-    "a", "al", "als", "en", "amb", "per", "però", "que", "què", "qui", "quin",
-    "quins", "quina", "quines", "com", "quan", "on", "hi", "ha", "és", "són",
-    "aquest", "aquesta", "aquests", "aquestes", "avui", "demà", "setmana",
-    "los", "las", "con", "por", "para", "del", "qué", "quién", "cuál", "cuándo",
-    "dónde", "hay", "este", "esta", "estos", "estas", "hoy", "mañana", "semana",
-    "sobre", "vols", "vull", "saber", "notícies", "noticias", "articles", "artículos"
+    "a", "al", "als", "en", "amb", "per", "pero", "que", "qui", "quin",
+    "quins", "quina", "quines", "com", "quan", "on", "hi", "ha", "es", "son",
+    "aquest", "aquesta", "aquests", "aquestes", "avui", "dema", "setmana",
+    "los", "las", "con", "por", "para", "cual", "cuando", "donde", "hay",
+    "este", "esta", "estos", "estas", "hoy", "manana", "semana", "sobre",
+    "vols", "vull", "saber", "noticies", "noticias", "articles", "articulos"
 }
+
+def normalitzar_text(text):
+    text = (text or "").lower()
+    text = unicodedata.normalize("NFD", text)
+    return "".join(c for c in text if unicodedata.category(c) != "Mn")
 
 # 2. Client d'OpenAI en memòria cau
 @st.cache_resource
@@ -37,7 +42,7 @@ client = obtenir_client()
 
 # 3. Carregar i pre-normalitzar la base de dades vectorial
 @st.cache_data
-def carregar_hemeroteca():
+def carregar_hemeroteca_vectors():
     with open("hemeroteca_vectors.json", "r", encoding="utf-8") as arxiu:
         dades = json.load(arxiu)
     matriu = np.array([a["vector"] for a in dades], dtype=np.float32)
@@ -45,9 +50,25 @@ def carregar_hemeroteca():
     matriu_normalitzada = matriu / np.maximum(normes, 1e-10)
     return dades, matriu_normalitzada
 
-articles, matriu_normalitzada = carregar_hemeroteca()
+articles_vectors, matriu_normalitzada = carregar_hemeroteca_vectors()
 
-# 4. Memòria cau d'embeddings (1 hora)
+# 4. Carregar l'hemeroteca completa comprimida (15.000+ notícies en memòria)
+@st.cache_data
+def carregar_hemeroteca_completa():
+    arxiu = "hemeroteca_completa.json.gz"
+    if not os.path.exists(arxiu):
+        return []
+    with gzip.open(arxiu, "rt", encoding="utf-8") as f:
+        dades = json.load(f)
+    for art in dades:
+        art["_titol_norm"] = normalitzar_text(art.get("titol", ""))
+        art["_resum_norm"] = normalitzar_text(art.get("resum", ""))
+        art["tipus"] = "noticia_hemeroteca"
+    return dades
+
+hemeroteca_completa = carregar_hemeroteca_completa()
+
+# 5. Memòria cau d'embeddings (1 hora)
 @st.cache_data(ttl=3600, show_spinner=False)
 def obtenir_embedding_pregunta(text):
     resposta_emb = client.embeddings.create(
@@ -57,85 +78,70 @@ def obtenir_embedding_pregunta(text):
     v = np.array(resposta_emb.data[0].embedding, dtype=np.float32)
     return v / np.maximum(np.linalg.norm(v), 1e-10)
 
-# 5. Utilitats per a la cerca en directe a l'hemeroteca de WordPress (15.000+ notícies)
-def netejar_html(text):
-    sense_etiquetes = re.sub(r"<[^>]+>", " ", text or "")
-    return re.sub(r"\s+", " ", html.unescape(sense_etiquetes)).strip()
+# 6. Cerca instantània a les 15.000+ notícies locals (sense crides a WordPress)
+def cercar_hemeroteca_local(pregunta, max_resultats=10):
+    if not hemeroteca_completa:
+        return []
 
-def extreure_paraules_clau(pregunta):
-    paraules = re.findall(r"[\wÀ-ÿ'-]+", pregunta.lower())
-    filtrades = [p for p in paraules if len(p) > 2 and p not in STOPWORDS]
-    return " ".join(filtrades[:5])
+    frase_norm = normalitzar_text(pregunta).strip()
+    paraules = re.findall(r"[a-z0-9'-]+", frase_norm)
+    claus = [p for p in paraules if len(p) > 2 and p not in STOPWORDS]
+    if not claus:
+        claus = [p for p in paraules if len(p) >= 2]
+    if not claus:
+        return []
 
-def _consultar_api_wp(terme, max_resultats):
-    url = "https://uepmallorca.app/wp-json/wp/v2/posts"
-    params = {
-        "search": terme,
-        "per_page": max_resultats,
-        "_fields": "title,excerpt,link,date"
-    }
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json"
-    }
-    r = requests.get(url, params=params, headers=headers, timeout=10)
-    if r.status_code != 200:
-        return [], f"Error WP HTTP {r.status_code}"
-    return r.json(), None
+    puntuats = []
+    for art in hemeroteca_completa:
+        t = art["_titol_norm"]
+        r = art["_resum_norm"]
+        punts = 0
 
-@st.cache_data(ttl=600, show_spinner=False)
-def cercar_hemeroteca_wp(pregunta, max_resultats=10):
-    try:
-        terme = pregunta.strip()
-        posts, error = _consultar_api_wp(terme, max_resultats)
+        # Coincidència de frase exacta
+        if len(frase_norm) > 3:
+            if frase_norm in t:
+                punts += 25
+            elif frase_norm in r:
+                punts += 12
 
-        # Si la pregunta és una frase llarga i WP no troba coincidència exacta, reintentam amb paraules clau
-        if not posts and not error:
-            claus = extreure_paraules_clau(terme)
-            if claus and claus != terme.lower():
-                posts, error = _consultar_api_wp(claus, max_resultats)
+        # Coincidència per paraules clau
+        coincidencies_clau = 0
+        for c in claus:
+            en_titol = c in t
+            en_resum = c in r
+            if en_titol:
+                punts += 6
+                coincidencies_clau += 1
+            elif en_resum:
+                punts += 2
+                coincidencies_clau += 1
 
-        if error:
-            return [], error
+        # Bonificació si apareixen totes les paraules clau
+        if len(claus) > 1 and coincidencies_clau == len(claus):
+            punts += 10
 
-        resultats = []
-        for p in posts:
-            data_iso = p.get("date", "")[:10]
-            try:
-                data_fmt = datetime.strptime(data_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
-            except ValueError:
-                data_fmt = data_iso
+        # Filtre mínim per evitar soroll en preguntes llargues
+        if punts > 0:
+            if len(claus) == 1 or coincidencies_clau >= min(2, len(claus)) or punts >= 12:
+                puntuats.append((punts, art))
 
-            resultats.append((
-                {
-                    "titol": netejar_html(p.get("title", {}).get("rendered", "")),
-                    "resum": netejar_html(p.get("excerpt", {}).get("rendered", ""))[:400],
-                    "enllac": p.get("link", ""),
-                    "data": data_fmt,
-                    "tipus": "noticia_wp"
-                },
-                None
-            ))
-        return resultats, None
-    except Exception as e:
-        return [], str(e)
+    # Ordenam per puntuació descendent (en cas d'empat, manté els més recents primer)
+    puntuats.sort(key=lambda x: x[0], reverse=True)
+    return [(art, None) for _, art in puntuats[:max_resultats]]
 
-# 6. Cerca híbrida: WordPress en directe + Vectors semàntics + Taquilla
-def cercar_hibrid(pregunta, max_wp=10, max_noticies_vec=6, max_entrades=6, llindar_minim=0.18, nomes_entrades=False):
+# 7. Cerca híbrida: Hemeroteca completa local + Vectors semàntics + Taquilla
+def cercar_hibrid(pregunta, max_local=10, max_noticies_vec=6, max_entrades=6, llindar_minim=0.18, nomes_entrades=False):
     vector_pregunta = obtenir_embedding_pregunta(pregunta)
     similituds = np.dot(matriu_normalitzada, vector_pregunta)
     indexs_ordenats = np.argsort(similituds)[::-1]
 
     if nomes_entrades:
-        max_wp = 0
+        max_local = 0
         max_noticies_vec = 0
         max_entrades = 10
 
-    # A) Resultats en directe de tota l'hemeroteca de WordPress
-    if max_wp > 0:
-        resultats_wp, wp_error = cercar_hemeroteca_wp(pregunta, max_resultats=max_wp)
-    else:
-        resultats_wp, wp_error = [], None
+    # A) Resultats de tota l'hemeroteca (15.000+ notícies)
+    resultats_locals = cercar_hemeroteca_local(pregunta, max_resultats=max_local) if max_local > 0 else []
 
     # B) Resultats semàntics i entrades de taquilla
     noticies_vec = []
@@ -146,7 +152,7 @@ def cercar_hibrid(pregunta, max_wp=10, max_noticies_vec=6, max_entrades=6, llind
         if puntuacio < llindar_minim:
             break
 
-        art = articles[idx]
+        art = articles_vectors[idx]
         if art.get("tipus") == "entrada":
             if len(entrades_sel) < max_entrades:
                 entrades_sel.append((art, puntuacio))
@@ -157,11 +163,11 @@ def cercar_hibrid(pregunta, max_wp=10, max_noticies_vec=6, max_entrades=6, llind
         if len(noticies_vec) >= max_noticies_vec and len(entrades_sel) >= max_entrades:
             break
 
-    # C) Fusió sense duplicats per URL (prioritzant WP i taquilla)
+    # C) Fusió sense duplicats per URL (prioritzant hemeroteca completa i taquilla)
     combinats = []
     urls_vistes = set()
 
-    for art, punt in resultats_wp + noticies_vec + entrades_sel:
+    for art, punt in resultats_locals + noticies_vec + entrades_sel:
         url_neta = art.get("enllac", "").rstrip("/").lower()
         if url_neta and url_neta in urls_vistes:
             continue
@@ -169,9 +175,9 @@ def cercar_hibrid(pregunta, max_wp=10, max_noticies_vec=6, max_entrades=6, llind
             urls_vistes.add(url_neta)
         combinats.append((art, punt))
 
-    return combinats, wp_error
+    return combinats
 
-# 7. Estat inicial (suport per a ?q= des d'uepmallorca.app i botons ràpids)
+# 8. Estat inicial (suport per a ?q= des d'uepmallorca.app i botons ràpids)
 pregunta_url = st.query_params.get("q", "")
 
 if "pregunta_input" not in st.session_state:
@@ -186,7 +192,7 @@ def seleccionar_xip(text_cerca, activar_nomes_entrades=False):
     st.session_state.nomes_entrades = activar_nomes_entrades
     st.session_state.llancar_cerca = True
 
-# 8. Interfície: casella + botons ràpids + interruptor d'entrades
+# 9. Interfície: casella + botons ràpids + interruptor d'entrades
 pregunta = st.text_input(
     "Què vols saber? (Ex: concerts a Palma, teatre aquest cap de setmana, entrevistes, exposicions...)",
     key="pregunta_input"
@@ -212,9 +218,9 @@ if cercar_clic:
 if st.session_state.llancar_cerca:
     if pregunta:
         with st.spinner("Cercant a l'hemeroteca completa d'UEP! Mallorca i a la taquilla..."):
-            top_articles, wp_error = cercar_hibrid(
+            top_articles = cercar_hibrid(
                 pregunta,
-                max_wp=10,
+                max_local=10,
                 max_noticies_vec=6,
                 max_entrades=6,
                 llindar_minim=0.18,
@@ -224,8 +230,6 @@ if st.session_state.llancar_cerca:
 
         if not top_articles:
             st.info("No hem trobat cap notícia ni entrada relacionada amb aquesta cerca.")
-            if wp_error:
-                st.caption(f"⚠️ Avís connexió hemeroteca WP: {wp_error}")
         else:
             context_articles = ""
             for art, puntuacio in top_articles:
@@ -237,7 +241,7 @@ if st.session_state.llancar_cerca:
                         f"  Enllaç: {art['enllac']}\n\n"
                     )
                 else:
-                    etiqueta = "📰 HEMEROTECA UEP!" if art.get("tipus") == "noticia_wp" else "📰 NOTÍCIA"
+                    etiqueta = "📰 HEMEROTECA UEP!" if art.get("tipus") == "noticia_hemeroteca" else "📰 NOTÍCIA"
                     context_articles += (
                         f"- [{etiqueta}] (Publicada el {art['data']})\n"
                         f"  Títol: {art['titol']}\n"
@@ -277,11 +281,9 @@ if st.session_state.llancar_cerca:
             st.write_stream(flux_resposta)
 
             with st.expander("🔍 Veure les fonts analitzades"):
-                if wp_error:
-                    st.caption(f"⚠️ Avís connexió hemeroteca WP: {wp_error}")
                 for art, puntuacio in top_articles:
                     icona = "🎟️" if art.get("tipus") == "entrada" else "📰"
-                    origen = "Hemeroteca WP" if puntuacio is None else f"Similitud: {puntuacio:.2f}"
+                    origen = "Hemeroteca completa" if puntuacio is None else f"Similitud: {puntuacio:.2f}"
                     st.markdown(f"{icona} **{art['titol']}** ({art['data']}) — *{origen}*  \n{art['enllac']}")
     else:
         st.warning("Escriu una pregunta abans de fer clic.")
