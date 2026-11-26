@@ -173,4 +173,103 @@ if "nomes_entrades" not in st.session_state:
 if "llancar_cerca" not in st.session_state:
     st.session_state.llancar_cerca = bool(pregunta_url)
 
-def seleccionar_xip
+def seleccionar_xip(text_cerca, activar_nomes_entrades=False):
+    st.session_state.pregunta_input = text_cerca
+    st.session_state.nomes_entrades = activar_nomes_entrades
+    st.session_state.llancar_cerca = True
+
+# 8. Interfície: casella + botons ràpids + interruptor d'entrades
+pregunta = st.text_input(
+    "Què vols saber? (Ex: concerts a Palma, teatre aquest cap de setmana, entrevistes, exposicions...)",
+    key="pregunta_input"
+)
+
+st.caption("Cerques ràpides:")
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    st.button("🎭 Teatre Palma", use_container_width=True, on_click=seleccionar_xip, args=("Teatre a Palma", False))
+with col2:
+    st.button("🎸 Concerts", use_container_width=True, on_click=seleccionar_xip, args=("Concerts aquest cap de setmana", False))
+with col3:
+    st.button("🖼️ Exposicions", use_container_width=True, on_click=seleccionar_xip, args=("Exposicions a Mallorca", False))
+with col4:
+    st.button("🎟️ Entrades", use_container_width=True, on_click=seleccionar_xip, args=("Entrades disponibles a Mallorca", True))
+
+nomes_entrades = st.toggle("🎟️ Només esdeveniments amb entrades disponibles", key="nomes_entrades")
+cercar_clic = st.button("Cercar", type="primary")
+
+if cercar_clic:
+    st.session_state.llancar_cerca = True
+
+if st.session_state.llancar_cerca:
+    if pregunta:
+        with st.spinner("Cercant a l'hemeroteca completa d'UEP! Mallorca i a la taquilla..."):
+            top_articles = cercar_hibrid(
+                pregunta,
+                max_wp=10,
+                max_noticies_vec=6,
+                max_entrades=6,
+                llindar_minim=0.18,
+                nomes_entrades=nomes_entrades
+            )
+            data_avui = datetime.now().strftime("%d/%m/%Y")
+
+        if not top_articles:
+            st.info("No hem trobat cap notícia ni entrada relacionada amb aquesta cerca.")
+        else:
+            context_articles = ""
+            for art, puntuacio in top_articles:
+                if art.get("tipus") == "entrada":
+                    context_articles += (
+                        f"- [🎟️ VENDA D'ENTRADES]\n"
+                        f"  Títol i dades: {art['titol']}\n"
+                        f"  Detalls: {art['resum']}\n"
+                        f"  Enllaç: {art['enllac']}\n\n"
+                    )
+                else:
+                    etiqueta = "📰 HEMEROTECA UEP!" if art.get("tipus") == "noticia_wp" else "📰 NOTÍCIA"
+                    context_articles += (
+                        f"- [{etiqueta}] (Publicada el {art['data']})\n"
+                        f"  Títol: {art['titol']}\n"
+                        f"  Resum: {art['resum']}\n"
+                        f"  Enllaç: {art['enllac']}\n\n"
+                    )
+
+            instruccions_sistema = f"""
+            Ets l'assistent cultural intel·ligent del diari UEP! Mallorca.
+            La data d'AVUI és: {data_avui}.
+
+            Respon a la pregunta de l'usuari utilitzant ÚNICAMENT els elements pertinents d'aquesta llista:
+
+            {context_articles}
+
+            Normes estrictes:
+1. Respon SEMPRE en català, amb un to clar, pràctic i periodístic.
+2. GESTIÓ INTEL·LIGENT DE DATES (MOLT IMPORTANT):
+  - Si l'usuari demana AGENDA, plans propers, "aquesta setmana", "aquest cap de setmana" o esdeveniments futurs: compara les dates reals amb AVUI ({data_avui}) i DESCARTA qualsevol funció o concert ja passat.
+  - Si l'usuari cerca informació d'HEMEROTECA (un artista, una entrevista, una obra, un festival o un tema general sense demanar agenda futura): INCLOU els articles històrics rellevants indicant breument quan es van publicar.
+3. RIGOR TEMÀTIC: Inclou només notícies el tema principal de les quals sigui el que demana l'usuari. Descarta notícies genèriques que només mencionin el tema de passada.
+4. RIGOR GEOGRÀFIC: Si l'usuari demana un municipi concret (ex: Palma), inclou els elements d'aquest municipi (incloent espais coneguts de Palma com Teatre del Mar, Teatre Principal, Teatre Sans, Espai el Tub, etc.). NO incloguis esdeveniments d'altres municipis ni inventis la ubicació si no consta.
+5. ENTRADES AMB "DIVERSES DATES": Inclou sempre les entrades que diguin "Diverses dates" si coincideixen amb el tema i el municipi.
+6. FORMAT NET I CONCÍS: Separa la resposta en dos blocs si hi ha contingut per a tots dos: **Actualitat i hemeroteca (📰)** i **Entrades disponibles a la taquilla (🎟️)**. Utilitza UN SOL punt de llista per cada element (títol en negreta, dades essencials i l'enllaç al final). No repeteixis frases genèriques com "Esdeveniment amb venda d'entrades disponible...".
+            """
+
+            flux_resposta = client.chat.completions.create(
+                model="gpt-4o-mini",
+                temperature=0.2,
+                stream=True,
+                messages=[
+                    {"role": "system", "content": instruccions_sistema},
+                    {"role": "user", "content": pregunta}
+                ]
+            )
+
+            st.write_stream(flux_resposta)
+
+            with st.expander("🔍 Veure les fonts analitzades"):
+                for art, puntuacio in top_articles:
+                    icona = "🎟️" if art.get("tipus") == "entrada" else "📰"
+                    origen = "Hemeroteca WP" if puntuacio is None else f"Similitud: {puntuacio:.2f}"
+                    st.markdown(f"{icona} **{art['titol']}** ({art['data']}) — *{origen}*  \n{art['enllac']}")
+    else:
+        st.warning("Escriu una pregunta abans de fer clic.")
