@@ -1,0 +1,94 @@
+import re
+import html
+import json
+import gzip
+import time
+from datetime import datetime
+import requests
+
+URL_API = "https://uepmallorca.app/wp-json/wp/v2/posts"
+ARXIU_SORTIDA = "hemeroteca_completa.json.gz"
+
+def netejar_html(text):
+    sense_etiquetes = re.sub(r"<[^>]+>", " ", text or "")
+    return re.sub(r"\s+", " ", html.unescape(sense_etiquetes)).strip()
+
+def descarregar_tot():
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json"
+    }
+
+    tots_els_articles = []
+    pagina = 1
+    total_pagines = None
+
+    print("🚀 Iniciant descàrrega de l'hemeroteca completa d'UEP! Mallorca...")
+
+    while True:
+        params = {
+            "per_page": 100,
+            "page": pagina,
+            "_fields": "date,link,title,excerpt"
+        }
+
+        try:
+            r = requests.get(URL_API, params=params, headers=headers, timeout=20)
+        except Exception as e:
+            print(f"⚠️ Error de connexió a la pàgina {pagina}: {e}. Reintentant en 5 segons...")
+            time.sleep(5)
+            continue
+
+        # Si el servidor demana calma (429), esperam uns segons i reintentam
+        if r.status_code == 429:
+            print(f"⏳ Pausa de seguretat (HTTP 429) a la pàgina {pagina}. Esperant 10 segons...")
+            time.sleep(10)
+            continue
+
+        # Final de la paginació
+        if r.status_code == 400:
+            break
+
+        if r.status_code != 200:
+            print(f"❌ Error HTTP {r.status_code} a la pàgina {pagina}. Aturant.")
+            break
+
+        if total_pagines is None:
+            total_pagines = int(r.headers.get("X-WP-TotalPages", 1))
+            total_posts = r.headers.get("X-WP-Total", "?")
+            print(f"📚 Detectades {total_posts} entrades en {total_pagines} pàgines.")
+
+        posts = r.json()
+        if not posts:
+            break
+
+        for p in posts:
+            data_iso = p.get("date", "")[:10]
+            try:
+                data_fmt = datetime.strptime(data_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
+            except ValueError:
+                data_fmt = data_iso
+
+            tots_els_articles.append({
+                "titol": netejar_html(p.get("title", {}).get("rendered", "")),
+                "resum": netejar_html(p.get("excerpt", {}).get("rendered", ""))[:300],
+                "enllac": p.get("link", ""),
+                "data": data_fmt
+            })
+
+        print(f"✅ Pàgina {pagina}/{total_pagines} descarregada ({len(tots_els_articles)} articles acumulats)")
+
+        if pagina >= total_pagines:
+            break
+
+        pagina += 1
+        time.sleep(0.35)  # Pausa breu per no saturar el servidor
+
+    print(f"\n💾 Guardant {len(tots_els_articles)} articles comprimits a {ARXIU_SORTIDA}...")
+    with gzip.open(ARXIU_SORTIDA, "wt", encoding="utf-8") as f:
+        json.dump(tots_els_articles, f, ensure_ascii=False)
+
+    print(f"🎉 Fet! Arxiu {ARXIU_SORTIDA} generat correctament.")
+
+if __name__ == "__main__":
+    descarregar_tot()
