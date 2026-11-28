@@ -78,7 +78,7 @@ Elabora un dossier informatiu detallat en text pla per a un periodista de cultur
 - Sinopsi completa (3-4 frases explicant bé l'argument i el conflicte).
 - Sales concretes de Mallorca on es projecta i si té passis en VOSE.
 
-No escriguis cap article encara, només el dossier ric en dades sobre les pel·lícules.
+PROHIBIT incloure referències ni atribucions a altres mitjans de comunicació o portals externs. No escriguis cap article encara, només el dossier ric en dades sobre les pel·lícules.
 """
 
     response = client.responses.create(
@@ -92,73 +92,8 @@ No escriguis cap article encara, només el dossier ric en dades sobre les pel·l
 def redactar_estrenes_cat(data_divendres, dossier):
     prompt_sistema = f"""
 Actua com una periodista jove, feminista i experimentada de la secció de cultura del diari digital UEP! Mallorca.
-A partir EXCLUSIVAMENT del dossier proporcionat, redacta la crònica d'estrenes de cinema a Mallorca per al divendres {data_divendres}, LLESTA PER PUBLICAR DIRECTAMENT al diari (sense notes internes, sense propostes de titulars i sense posts de xarxes).
+Redacta una crònica periodística en català d'estrenes de cinema a Mallorca per al divendres {data_divendres} a partir, exclusivament, del dossier proporcionat, LLESTA PER PUBLICAR DIRECTAMENT al diari (sense notes internes, sense propostes de titulars i sense posts de xarxes dins del cos). Aprofita al màxim el material del dossier. Humanitza el text perquè la lectura sigui natural i fluida. Organitza la informació segons la piràmide invertida.
 
-REGLES INNEGOCIABLES:
-1. PROTAGONISME ABSOLUT PER A LES PEL·LÍCULES (80% cinema, 20% sales):
-   - Dedica el gruix de cada paràgraf a explicar bé de què va la pel·lícula, quin enfocament té, qui la dirigeix, qui la protagonitza i quin interès cultural aporta.
-2. PROHIBIT REPETIR FÓRMULES NI DATES:
-   - La data d'estrena ({data_divendres}) només s'escriu UNA vegada, al primer paràgraf (lead).
-   - Indica les sales amb una sola frase curta i natural al final del comentari de cada film.
-3. ZERO TÒPICS I ZERO CLIXÉS: Prohibit expressions buides ("epicentre cultural", "oferta variada", "promet emocionar", "experiència única", "no es pot perdre").
-4. ESTRUCTURA PERIODÍSTICA:
-   - Primer paràgraf (lead) directe amb les 5W, els títols destacats i la paraula clau "estrenes de cinema a Mallorca".
-   - Agrupa les pel·lícules en 3 blocs temàtics amb subtítols <h2> descriptius.
-   - No tradueixis mai els títols ni els noms propis. No inventis dades que no siguin al dossier.
-5. FORMAT HTML ESTRICTE: Utilitza EXCLUSIVAMENT etiquetes HTML (<p>, <h2>, <ul>, <li>, <strong>, <em>). PROHIBIT asteriscos de Markdown (**), PROHIBIT <h1> i PROHIBIT cites numèriques tipus [1]. Aplica <strong> només a noms clau (directors, intèrprets), sales de Mallorca i dates.
-
-HAS DE RETORNAR EXCLUSIVAMENT UN OBJECTE JSON VÀLID amb aquestes 5 claus exactes:
-{{
-  "titol": "Titular periodístic definitiu en català, màxim 60 caràcters, sense cometes innecessàries ni prefixos",
-  "frase_clau": "estrenes de cinema a Mallorca",
-  "meta_descripcio": "Meta descripció en català de màxim 140 caràcters que inclogui 'estrenes de cinema a Mallorca'",
-  "etiquetes": ["Estrenes de cinema", "Cartellera Mallorca", "CineCiutat", "Palma"],
-  "contingut_html": "Cos complet de la notícia en HTML net, llest per a publicar sense cap bloc de redacció al final"
-}}
-"""
-
-    respuesta = client.chat.completions.create(
-        model="gpt-4o",
-        temperature=0.35,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": prompt_sistema},
-            {"role": "user", "content": dossier}
-        ]
-    )
-
-    dades = json.loads(respuesta.choices[0].message.content)
-    dades["contingut_html"] = limpiar_y_formatear_html(dades["contingut_html"])
-    return dades
-
-
-def enviar_a_wordpress(dades):
-    tag_ids = obtenir_o_crear_etiquetes(dades.get("etiquetes", []))
-
-    payload = {
-        "title": dades["titol"],
-        "content": dades["contingut_html"],
-        "excerpt": dades["meta_descripcio"],
-        "status": ESTAT_PUBLICACIO,
-        "categories": [int(CAT_CINEMA_ID)],
-        "tags": tag_ids,
-        "featured_media": int(IMATGE_DESTACADA_ID),
-        "meta": {
-            "_yoast_wpseo_title": dades["titol"],
-            "_yoast_wpseo_metadesc": dades["meta_descripcio"],
-            "_yoast_wpseo_focuskw": dades["frase_clau"]
-        }
-    }
-
-    resp = requests.post(f"{WP_BASE_URL}/posts", auth=WP_AUTH, json=payload, timeout=30)
-    resp.raise_for_status()
-    print(f"Prova creada ({ESTAT_PUBLICACIO})! [{dades['titol']}] ID: {resp.json().get('id')}")
-
-
-if __name__ == "__main__":
-    data_divendres = obtenir_data_divendres()
-    print(f"Cercant estrenes per al divendres {data_divendres}...")
-    dossier = cercar_dossier_estrenes(data_divendres)
-    if dossier:
-        dades = redactar_estrenes_cat(data_divendres, dossier)
-        enviar_a_wordpress(dades)
+TRACTAMENT DE LA INFORMACIÓ:
+- Mirada periodística: Identifica el fet noticiable principal (l'estrena més potent o el fil conductor de la cartellera) abans de redactar. Aquest fet ha de marcar l'enfocament del lead i l'ordre de la informació. Mantén un to clar, neutral, rigorós i imparcial. No emetis judicis de valor personals ni utilitzis la primera persona.
+- Base estricta: Extreu la màxima informació rellevant del dossier per crear un article profund i complet. NO inventis fets, NO facis suposicions i
