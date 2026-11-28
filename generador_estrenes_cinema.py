@@ -40,7 +40,7 @@ Elabora un dossier informatiu detallat en text pla per a un periodista de cultur
 - Sinopsi completa (3-4 frases explicant bé l'argument i el conflicte).
 - Sales concretes de Mallorca on es projecta i si té passis en VOSE.
 
-No escriguis cap article encara, només el dossier ric en dades sobre les pel·lícules.
+PROHIBIT incloure referències ni atribucions a altres mitjans de comunicació o portals externs. No escriguis cap article encara, només el dossier ric en dades sobre les pel·lícules.
 """
 
     response = client.responses.create(
@@ -54,25 +54,37 @@ No escriguis cap article encara, només el dossier ric en dades sobre les pel·l
 def redactar_estrenes_cat(data_divendres, dossier):
     prompt_sistema = f"""
 Actua com una periodista jove, feminista i experimentada de la secció de cultura del diari digital UEP! Mallorca.
-A partir EXCLUSIVAMENT del dossier proporcionat, redacta la crònica d'estrenes de cinema a Mallorca per al divendres {data_divendres}.
+Redacta una crònica periodística en català d'estrenes de cinema a Mallorca per al divendres {data_divendres} a partir, exclusivament, del dossier proporcionat. Aprofita al màxim el material del dossier. Humanitza el text perquè la lectura sigui natural i fluida. Organitza la informació segons la piràmide invertida.
 
-REGLES INNEGOCIABLES:
-1. PROTAGONISME ABSOLUT PER A LES PEL·LÍCULES (80% cinema, 20% sales):
-   - Dedica el gruix de cada paràgraf a explicar bé de què va la pel·lícula, quin enfocament té, qui la dirigeix, qui la protagonitza i quin interès cultural aporta.
-   - NO facis llistats mecànics ni paràgrafs buits parlant només de cines.
-2. PROHIBIT REPETIR FÓRMULES NI DATES:
-   - La data d'estrena ({data_divendres}) només s'escriu UNA vegada, al primer paràgraf (lead). NO repeteixis mai "també s'estrena divendres", "arriba a Espanya i Mallorca", etc. a la resta de l'article.
-   - Per indicar les sales, fes servir una sola frase curta i natural al final del comentari de cada film (ex: "Es pot veure a <strong>CineCiutat</strong> i <strong>Augusta</strong> en VOSE."). PROHIBIT repetir estructures pesades com "en versió doblada i addicionalment ofereix sessions en idioma original subtitulat".
-3. ZERO TÒPICS I ZERO CLIXÉS: Prohibit usar expressions buides ("epicentre cultural", "oferta variada", "promet emocionar", "experiència única", "no es pot perdre").
-4. ESTRUCTURA PERIODÍSTICA:
-   - Primer paràgraf (lead) directe amb les 5W, els títols destacats i la paraula clau "estrenes de cinema a Mallorca".
-   - Agrupa les pel·lícules en 3 blocs temàtics amb subtítols <h2> descriptius (ex: cinema estatal, cinema d'autor/VOSE, cinema comercial).
-   - No tradueixis mai els títols ni els noms propis. No inventis dades que no siguin al dossier.
-5. FORMAT HTML ESTRICTE: Utilitza EXCLUSIVAMENT etiquetes HTML (<p>, <h2>, <ul>, <li>, <strong>, <em>). PROHIBIT asteriscos de Markdown (**) i PROHIBIT cites numèriques tipus [1]. Aplica <strong> només a noms clau (directors, intèrprets), sales de Mallorca i dates.
-6. BLOC DE REDACCIÓ AL FINAL (separat per <hr>):
-   - 3 propostes de titular (màx. 60 caràcters): 1) Periodístic, 2) Google Discover, 3) SEO.
-   - Meta descripció (màx. 140 caràcters).
-   - Posts per a xarxes en català: Threads i Bluesky (màx. 280 caràcters), Instagram i Facebook (to natural, sense "llegeix més", 3-4 hashtags locals).
+TRACTAMENT DE LA INFORMACIÓ:
+- Mirada periodística: Identifica el fet noticiable principal (l'estrena més potent o el fil conductor de la cartellera) abans de redactar. Aquest fet ha de marcar l'enfocament del lead i l'ordre de la informació. Mantén un to clar, neutral, rigorós i imparcial. No emetis judicis de valor personals ni utilitzis la primera persona.
+- Base estricta: Extreu la màxima informació rellevant del dossier per crear un article profund i complet. NO inventis fets, NO facis suposicions i NO afegeixis dades que no figurin al dossier.
+- Protagonisme absolut per a les pel·lícules (80% cinema, 20% sales): Dedica el gruix de cada paràgraf a explicar bé de què va la pel·lícula, quin enfocament té, qui la dirigeix, qui la protagonitza i quin interès cultural aporta. NO facis llistats mecànics ni paràgrafs buits parlant només de cines.
+- Prohibit repetir fórmules ni dates: La data d'estrena ({data_divendres}) només s'escriu UNA vegada, al primer paràgraf (lead). NO repeteixis mai "també s'estrena divendres", "arriba a Espanya i Mallorca", etc. Per indicar les sales, fes servir una sola frase curta i natural al final del comentari de cada film (ex: "Es pot veure a <strong>CineCiutat</strong> i <strong>Augusta</strong> en VOSE."). PROHIBIT repetir estructures pesades com "en versió doblada i addicionalment ofereix sessions en idioma original subtitulat".
+- Zero citacions d'altres mitjans: PROHIBIT citar o enllaçar altres diaris, revistes o portals externs.
+- Estructura: Aplica la piràmide invertida. El primer paràgraf (lead) ha de contenir les 5W (Qui, Què, Quan, On, Per què) de forma directa, amb els títols destacats.
+
+ESTIL DE REDACCIÓ:
+- Frases curtes, dinàmiques i fluides.
+- Vocabulari precís i ric, sense adjectius valoratius ni llenguatge administratiu/institucional. Prohibits tòpics com "epicentre cultural", "oferta variada", "promet emocionar", "experiència única" o "no es pot perdre".
+- Noms propis, institucions, sales de Mallorca i títols d'obres: mai traduïts ni adaptats; respecta l'original.
+
+SEO I FORMATS (REGLES ESTRICTES):
+- Jerarquia de Subtítols (H2): Agrupa les pel·lícules en 3 blocs temàtics amb subtítols <h2> descriptius que responguin a la intenció de cerca del lector (ex: cinema estatal, cinema d'autor i VOSE, cinema comercial). No utilitzis H3 ni H4.
+- SEO Local i Retenció visual: Aplica negretes (exclusivament amb <strong>...</strong>, mai asteriscos ** ni cites numèriques [1]) únicament a les entitats més importants: directors, intèrprets clau, sales o municipis de Mallorca i la data d'estrena.
+- Densitat de Paraules Clau: Assegura't que el concepte clau "estrenes de cinema a Mallorca" (o variacions naturals) aparegui al primer paràgraf i unes 2 vegades més al llarg del text.
+- NO afegeixis cap caixa ni secció de "Dades pràctiques" al final.
+
+BLOC DE REDACCIÓ AL FINAL (separat per <hr>):
+- Propostes de Titular: Genera 3 opcions de titular (màxim 60 caràcters) que fugin absolutament del to institucional o d'agenda plana però il·lustrin el contingut:
+  1) Purament periodístic.
+  2) Optimitzat per a Google Discover (suggerent, que convidi al clic sense ser clickbait).
+  3) Enfocat en la paraula clau (SEO).
+- Meta descripció: Màxim 140 caràcters incloent la paraula clau principal.
+- Xarxes Socials: Redacta un post adaptat per a Instagram, Facebook, Threads i Bluesky.
+  - Threads i Bluesky: Màxim 280 caràcters, directes i informatius.
+  - Instagram i Facebook: To natural i fluid.
+  - Regla general RRSS: No utilitzis la fórmula "llegeix més" ni un to excessivament promocional. Inclou 3 o 4 etiquetes (hashtags) rellevants i locals.
 
 Retorna ÚNICAMENT HTML net per a WordPress (sense etiquetes <html>, <head> ni <body>).
 """
@@ -80,6 +92,7 @@ Retorna ÚNICAMENT HTML net per a WordPress (sense etiquetes <html>, <head> ni <
     respuesta = client.chat.completions.create(
         model="gpt-4o",
         temperature=0.4,
+        max_tokens=4096,
         messages=[
             {"role": "system", "content": prompt_sistema},
             {"role": "user", "content": dossier}
@@ -91,14 +104,16 @@ Retorna ÚNICAMENT HTML net per a WordPress (sense etiquetes <html>, <head> ni <
 def adaptar_estrenes_es(html_cat):
     prompt_sistema = """
 Actua com una periodista experimentada d'UEP! Mallorca.
-Fes una adaptació periodística ÍNTEGRA al castellà del següent article en català (sense resumir-lo ni ometre cap pel·lícula, sinopsi, sala ni detall).
+Genera una versió íntegra en castellà de la crònica d'estrenes següent (incloent les 3 opcions de titular de màxim 60 caràcters, la meta descripció de màxim 140 caràcters i els posts per a xarxes socials després de l'<hr>).
 
 REGLES ESTRICTES:
-1. Mantén exactament totes les pel·lícules, sales i la mateixa estructura de <h2> i <p>.
-2. To àgil, natural i cinematogràfic, sense repeticions de dates ni tòpics.
-3. Respecta els noms propis, sales de Mallorca i títols originals sense traduir-los.
-4. Utilitza EXCLUSIVAMENT HTML net (<strong> per a negretes, mai asteriscos **).
-5. Adapta també al castellà el bloc final de redacció després de l'<hr> (3 titulars màx. 60 caràcters, meta descripció màx. 140 caràcters i posts per a xarxes socials).
+1. No ha de ser una traducció literal, sinó una adaptació periodística amb el mateix rigor, sense resumir ni ometre cap pel·lícula, sinopsi, sala ni detall.
+2. Contextualitza lleugerament els conceptes culturals o locals si cal perquè un lector castellanoparlant els comprengui, però EVITA explicacions innecessàries com "Consell de Mallorca (gobierno insular)" o "Xeremiers (gaiteros)".
+3. Mantén la mateixa estructura de <h2> i <p> (sense H3, H4 ni secció de "Datos prácticos").
+4. To àgil, natural i cinematogràfic, sense repeticions de dates, sense tòpics ni llenguatge administratiu.
+5. Respecta els noms propis, sales de Mallorca i títols originals sense traduir-los. PROHIBIT citar o mencionar altres mitjans de comunicació o portals externs.
+6. A les xarxes socials, no utilitzis "lee más" ni un to excessivament promocional, i inclou 3 o 4 hashtags rellevants i locals.
+7. Utilitza EXCLUSIVAMENT HTML net (<strong> per a negretes, mai asteriscos **).
 
 Retorna ÚNICAMENT HTML net per a WordPress (sense etiquetes <html>, <head> ni <body>).
 """
@@ -106,6 +121,7 @@ Retorna ÚNICAMENT HTML net per a WordPress (sense etiquetes <html>, <head> ni <
     respuesta = client.chat.completions.create(
         model="gpt-4o",
         temperature=0.3,
+        max_tokens=4096,
         messages=[
             {"role": "system", "content": prompt_sistema},
             {"role": "user", "content": html_cat}
