@@ -83,14 +83,14 @@ ESPAIS_AGENDA_PALMA = [
     "Teatre Principal de Palma", "Auditorium de Palma (auditoriumpalma.com/ca/)", "Es Gremi",
     "Teatre Xesc Forteza", "Teatre del Mar", "Teatre Mar i Terra",
     "Es Baluard", "Casal Solleric", "CaixaForum Palma", "Fundació Miró Mallorca",
-    "Art Palma Contemporani", "PalmaCultura"
+    "Art Palma Contemporani", "PalmaCultura", "CineCiutat", "La Misericòrdia"
 ]
 
 ESPAIS_AGENDA_PART_FORANA = [
     "Auditori de Manacor", "Teatre Principal d'Inca", "Auditori d'Alcúdia",
     "Teatre de Lloseta", "Teatre d'Artà", "Auditori de Porreres",
     "Auditori Sa Màniga (Cala Millor)", "Factoria de So (Santa Maria)",
-    "CCA Andratx (ccandratx.eu)"
+    "CCA Andratx (ccandratx.eu)", "Auditori de Peguera"
 ]
 
 
@@ -127,21 +127,40 @@ def coincide_fecha(evento, fechas_objetivo):
     return False
 
 
-def extraer_ficha_web(url):
+def extraer_ficha_web(url, max_chars=2500):
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; UEPMallorcaBot/1.0)"}
-        r = requests.get(url, headers=headers, timeout=12)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        }
+        r = requests.get(url, headers=headers, timeout=15)
         if r.status_code != 200:
             return ""
         soup = BeautifulSoup(r.text, "html.parser")
-        for tag in soup(["script", "style", "nav", "footer", "header", "noscript", "aside"]):
+        for tag in soup(["script", "style", "nav", "footer", "header", "noscript", "aside", "form"]):
             tag.decompose()
-        contenedor = soup.find("article") or soup.find("main") or soup
+        contenedor = soup.find("main") or soup.find("article") or soup.body or soup
         texto = contenedor.get_text(separator="\n", strip=True)
         lineas = [l.strip() for l in texto.splitlines() if len(l.strip()) > 2]
-        return "\n".join(lineas)[:2500]
+        return "\n".join(lineas)[:max_chars]
     except Exception:
         return ""
+
+
+def extreure_cartelleres_directes():
+    """Llegeix directament l'HTML d'Auditorium de Palma i Youthing per no dependre de web_search."""
+    fonts = [
+        ("AUDITORIUM DE PALMA (web oficial: https://auditoriumpalma.com/ca/)", "https://auditoriumpalma.com/ca/"),
+        ("YOUTHING (només dades objectives, PROHIBIT citar o enllaçar youthing.es)", "https://youthing.es/"),
+    ]
+    blocs = []
+    for nom, url in fonts:
+        print(f"Llegint cartellera directa: {url}")
+        text = extraer_ficha_web(url, max_chars=6000)
+        if text:
+            blocs.append(f"=== CARTELLERA DIRECTA: {nom} ===\n{text}")
+        else:
+            print(f"Avís: no s'ha pogut llegir text directe de {url}")
+    return "\n\n".join(blocs)
 
 
 def limpiar_y_formatear_html(html):
@@ -164,7 +183,7 @@ def configurar_formato(tipo):
         return (
             f"Agenda cultural del dissabte {f.strftime('%d/%m/%Y')} a Mallorca",
             f"Agenda cultural del sábado {f.strftime('%d/%m/%Y')} en Mallorca",
-            f"Redacta la notícia d'agenda cultural per al dissabte {f.strftime('%d/%m/%Y')} a Mallorca. Descarta qualsevol acte que no tingui lloc aquell dia.",
+            f"Redacta una agenda cultural molt completa i detallada per al dissabte {f.strftime('%d/%m/%Y')} a Mallorca. Descarta qualsevol acte que no tingui lloc aquell dia (llevat d'exposicions vigents aquell dissabte).",
             [f]
         )
     elif tipo == "domingo":
@@ -173,7 +192,7 @@ def configurar_formato(tipo):
         return (
             f"Agenda cultural del diumenge {f.strftime('%d/%m/%Y')} a Mallorca",
             f"Agenda cultural del domingo {f.strftime('%d/%m/%Y')} en Mallorca",
-            f"Redacta la notícia d'agenda cultural per al diumenge {f.strftime('%d/%m/%Y')} a Mallorca. Descarta qualsevol acte que no tingui lloc aquell dia.",
+            f"Redacta una agenda cultural molt completa i detallada per al diumenge {f.strftime('%d/%m/%Y')} a Mallorca. Descarta qualsevol acte que no tingui lloc aquell dia (llevat d'exposicions vigents aquell diumenge).",
             [f]
         )
     elif tipo == "conciertos_semana":
@@ -209,7 +228,7 @@ def cargar_noticias_recientes_wp(fechas_objetivo):
     try:
         url = "https://uepmallorca.app/wp-json/wp/v2/posts"
         headers = {"User-Agent": "Mozilla/5.0 (compatible; UEPMallorcaBot/1.0)"}
-        params = {"per_page": 40, "status": "publish", "orderby": "date", "order": "desc"}
+        params = {"per_page": 60, "status": "publish", "orderby": "date", "order": "desc"}
         r = requests.get(url, headers=headers, params=params, timeout=20)
         if r.status_code != 200:
             print(f"Avís: no s'han pogut llegir les notícies recents de WP (status {r.status_code}).")
@@ -239,11 +258,9 @@ def cargar_noticias_recientes_wp(fechas_objetivo):
 
 
 def cargar_eventos_enriquecidos(fechas_objetivo):
-    # 1. Primer consultam en temps real les notícies publicades a uepmallorca.app (incloent les d'avui)
     enriquecidos = cargar_noticias_recientes_wp(fechas_objetivo)
     urls_vistes = {ev["enllac"].rstrip("/") for ev in enriquecidos if ev.get("enllac")}
 
-    # 2. Després completam amb l'hemeroteca local i la taquilla d'entrades
     try:
         with open("hemeroteca_vectors.json", "r", encoding="utf-8") as f:
             datos = json.load(f)
@@ -263,7 +280,7 @@ def cargar_eventos_enriquecidos(fechas_objetivo):
         and coincide_fecha(a, fechas_objetivo)
     ]
 
-    seleccion = entradas[:30] + noticias[:20]
+    seleccion = entradas[:35] + noticias[:25]
 
     for ev in seleccion:
         enllac = ev.get("enllac", "")
@@ -290,7 +307,7 @@ def _fer_cerca_zona(client, disciplina, rang_dates, zona, llista_sales):
 Fes una cerca exhaustiva a internet de la programació confirmada de {disciplina} a {zona} (Mallorca) {rang_dates}.
 Revisa especialment les webs oficials d'aquests espais culturals: {salas_str}.
 
-Objectiu: recopilar el màxim nombre d'esdeveniments o exposicions CONFIRMATS (idealment entre 6 i 10 propostes diferents) vigents o programats dins aquestes dates exactes. Descarta qualsevol acte d'Eivissa, Menorca o Formentera, i qualsevol proposta ja finalitzada o fora del rang indicat.
+Objectiu: recopilar el màxim nombre d'esdeveniments o exposicions CONFIRMATS (idealment entre 10 i 15 propostes diferents) vigents o programats dins aquestes dates exactes. Descarta qualsevol acte d'Eivissa, Menorca o Formentera, i qualsevol proposta ja finalitzada o fora del rang indicat.
 
 REGLA ESTRICTA DE FONTS:
 - Prioritza sempre la informació de les webs oficials de les sales, museus, galeries o ajuntaments.
@@ -298,42 +315,13 @@ REGLA ESTRICTA DE FONTS:
 
 Per a CADA proposta trobada, indica:
 - Nom de l'artista, banda, obra, exposició o companyia.
-- Data exacta (o dates de vigència, ex: fins al 15 de gener) i hora si consta.
-- Sala, museu o galeria i municipi de Mallorca (i la seva web oficial únicament si és la del propi espai cultural).
-- Breu descripció (2 frases sobre la proposta artística).
+- Data exacta (o dates de vigència) i hora si consta.
+- Sala, museu o galeria, municipi de Mallorca i preu si consta.
+- Breu descripció (2-3 frases sobre la proposta artística).
 
 No escriguis cap notícia encara, només el dossier verificat. Si d'algun espai no hi ha programació confirmada en aquestes dates, no t'inventis res.
 """
     print(f"Cercant programació externa [{zona}] ({rang_dates})...")
-    response = client.responses.create(
-        model="gpt-4o",
-        tools=[{"type": "web_search"}],
-        input=prompt_cerca
-    )
-    return response.output_text
-
-
-def _fer_cerca_fonts_clau(client, disciplina, rang_dates):
-    prompt_cerca = f"""
-Consulta específicament aquestes dues webs per trobar programació confirmada de {disciplina} a Mallorca {rang_dates}:
-1) https://auditoriumpalma.com/ca/ (web oficial de l'Auditorium de Palma)
-2) https://youthing.es/ (guia d'agenda cultural de Mallorca)
-
-Objectiu: extreure TOTS els esdeveniments o exposicions CONFIRMATS de {disciplina} dins aquestes dates exactes a Mallorca. Descarta qualsevol acte fora de dates o que sigui d'Eivissa, Menorca o Formentera.
-
-REGLES ESTRICTES:
-- De youthing.es, extreu ÚNICAMENT les dades objectives (nom de l'artista/obra/exposició, data, hora, recinte, municipi i preu si consta). NO copiïs textos ni descripcions literals i NO incloguis mai cap enllaç ni menció a youthing.es al dossier.
-- D'auditoriumpalma.com/ca/, pots incloure l'enllaç oficial de l'espectacle o del recinte perquè és la sala oficial.
-
-Per a CADA proposta trobada, indica:
-- Nom de l'artista, banda, obra, exposició o companyia.
-- Data exacta (o dates de vigència) i hora si consta.
-- Sala, museu o galeria i municipi de Mallorca (i preu si consta).
-- Breu síntesi pròpia en 1 o 2 frases.
-
-No escriguis cap notícia encara, només el dossier verificat. Si no hi ha actes confirmats en aquestes dates per a aquesta disciplina, indica-ho sense inventar res.
-"""
-    print(f"Cercant programació a auditoriumpalma.com/ca/ i youthing.es ({rang_dates})...")
     response = client.responses.create(
         model="gpt-4o",
         tools=[{"type": "web_search"}],
@@ -348,40 +336,40 @@ def cercar_agenda_externa(client, tipo, fechas_objetivo):
     else:
         rang_dates = f"entre el {fechas_objetivo[0].strftime('%d/%m/%Y')} i el {fechas_objetivo[-1].strftime('%d/%m/%Y')}"
 
+    cartelleres_directes = extreure_cartelleres_directes()
+
     if tipo == "exposiciones_semana":
         disc_expo = "exposicions d'art contemporani, fotografia, escultura i inauguracions (tant noves inauguracions com mostres vigents)"
         d_museus = _fer_cerca_zona(client, disc_expo, rang_dates, "Museus i centres culturals de Palma", MUSEUS_EXPOSICIONS_PALMA)
         d_galeries = _fer_cerca_zona(client, disc_expo, rang_dates, "Galeries d'Art Palma Contemporani", GALERIES_ART_PALMA)
         d_forana = _fer_cerca_zona(client, disc_expo, rang_dates, "la Part Forana de Mallorca", SALAS_EXPOSICIONS_PART_FORANA)
-        d_clau = _fer_cerca_fonts_clau(client, disc_expo, rang_dates)
         return (
+            f"--- CARTELLERES DIRECTES (AUDITORIUM I YOUTHING) ---\n{cartelleres_directes}\n\n"
             f"--- MUSEUS DE PALMA ---\n{d_museus}\n\n"
             f"--- GALERIES ART PALMA CONTEMPORANI ---\n{d_galeries}\n\n"
-            f"--- PART FORANA ---\n{d_forana}\n\n"
-            f"--- AUDITORIUM I AGENDA COMPLEMENTÀRIA ---\n{d_clau}"
+            f"--- PART FORANA ---\n{d_forana}"
         )
 
     if tipo == "conciertos_semana":
-        disciplina = "concerts i música en directe"
+        disciplina = "concerts, festivals, jazz, clàssica i música en directe"
         sales_palma = SALAS_MUSICA_PALMA
         sales_forana = SALAS_MUSICA_PART_FORANA
     elif tipo == "teatro_semana":
-        disciplina = "teatre, dansa, monòlegs i arts escèniques"
+        disciplina = "teatre, dansa, circ, monòlegs i arts escèniques"
         sales_palma = SALAS_TEATRO_PALMA
         sales_forana = SALAS_TEATRO_PART_FORANA
     else:
-        disciplina = "cultura (concerts, teatre, dansa, exposicions, literatura i cinema)"
+        disciplina = "cultura (concerts, teatre, dansa, exposicions, literatura, cinema i activitats familiars)"
         sales_palma = ESPAIS_AGENDA_PALMA
         sales_forana = ESPAIS_AGENDA_PART_FORANA
 
     dossier_palma = _fer_cerca_zona(client, disciplina, rang_dates, "Palma", sales_palma)
     dossier_forana = _fer_cerca_zona(client, disciplina, rang_dates, "la Part Forana de Mallorca", sales_forana)
-    dossier_clau = _fer_cerca_fonts_clau(client, disciplina, rang_dates)
 
     return (
+        f"--- CARTELLERES DIRECTES (AUDITORIUM I YOUTHING) ---\n{cartelleres_directes}\n\n"
         f"--- PALMA ---\n{dossier_palma}\n\n"
-        f"--- PART FORANA ---\n{dossier_forana}\n\n"
-        f"--- AUDITORIUM I AGENDA COMPLEMENTÀRIA ---\n{dossier_clau}"
+        f"--- PART FORANA ---\n{dossier_forana}"
     )
 
 
@@ -400,7 +388,7 @@ def redactar_noticia_cat(client, eventos, instruccion_filtro, dossier_externo=""
 
     if dossier_externo:
         dossier += (
-            "=== PROGRAMACIÓ EXTERNA DE SALES DE REFERÈNCIA A MALLORCA ===\n"
+            "=== PROGRAMACIÓ EXTERNA I CARTELLERES DIRECTES DE MALLORCA ===\n"
             f"{dossier_externo}\n\n"
         )
 
@@ -409,26 +397,36 @@ Actua com una periodista jove, feminista i experimentada de la secció de cultur
 Avui és {fecha_hoy}.
 OBJECTIU: {instruccion_filtro}
 
-REGLES INNEGOCIABLES:
-1. PRIORITAT ABSOLUTA A UEP! MALLORCA I ZERO CITACIONS D'ALTRES MITJANS:
-  - Has d'incloure TOTS i CADA UN dels esdeveniments marcats com a [TAQUILLA (entradas.uepmallorca.app)] i [NOTÍCIA (uepmallorca.app)] que encaixin amb la data i la disciplina demanada. NO n'ometis ni un sol ni els resumeixis en excés.
-  - Afegeix també TOTS els actes rellevants procedents de [PROGRAMACIÓ EXTERNA DE SALES DE REFERÈNCIA A MALLORCA] que tinguin lloc o estiguin vigents en el rang de dates objectiu.
-  - Si un mateix esdeveniment apareix a TAQUILLA/NOTÍCIA d'UEP! i també a la PROGRAMACIÓ EXTERNA, fusiona la informació en un sol paràgraf sense repetir-lo i mantén SEMPRE l'enllaç d'UEP! Mallorca.
-  - PROHIBIT CITAR O ENLLAÇAR ALTRES MITJANS DE COMUNICACIÓ O PORTALS CULTURALS EXTERNS: no escriguis mai "Més informació a youthing.es", "Més informació a bonart.cat", "segons Diario de Mallorca", ni esmentis cap altre diari, revista o agenda externa. Si un acte no té notícia a UEP! Mallorca, remet únicament al nom del museu, sala o galeria (o a la seva web oficial si apareix verificada al dossier). No inventis mai enllaços.
-2. ZERO TÒPICS, ZERO CLIXÉS I ZERO ARRANCS REPETITIUS:
-  - ESTÀ TERMINANTMENT PROHIBIT utilitzar expressions buides com "es converteix en l'epicentre de la cultura", "epicentre cultural", "amb una oferta variada", "promet emocionar", "una experiència única", "no es pot perdre" o "farà gaudir al públic".
-  - Obre el primer paràgraf (lead) directament amb els protagonistes reals de la setmana (artistes, bandes, obres, exposicions o espais concrets), integrant les 5W de forma natural.
-3. ESTRUCTURA PERIODÍSTICA REAL (NO UN LLISTAT):
-  - Agrupa els esdeveniments en 3 o 4 grans blocs temàtics o geogràfics amb subtítols <h2> descriptius. NO facis un <h2> per a cada esdeveniment individual.
-  - Redacta en paràgrafs (<p>) complets i enllaçats entre si, integrant totes les dades pràctiques (dia, hora, dates de vigència, recinte, municipi, preu si consta) dins el propi relat.
-  - NO afegeixis cap secció de "Dades pràctiques" al final.
-  - Integra els enllaços de compra i de notícies d'UEP! de manera natural dins les frases amb <a href="..." target="_blank" rel="noopener noreferrer">...</a>.
-  - FORMAT HTML ESTRICTE: Utilitza EXCLUSIVAMENT etiquetes HTML (<strong>...</strong>) per a les negretes. PROHIBIT fer servir asteriscos de Markdown (**) i PROHIBIT cites numèriques tipus [1]. Aplica <strong> només a noms clau, municipis, espais culturals i dates.
-4. RIGOR ABSOLUT: No inventis cap dada. Respecta els noms propis i títols originals sense traduir-los. Descarta qualsevol esdeveniment d'Eivissa, Menorca o Formentera.
-5. BLOC DE REDACCIÓ AL FINAL (separat per <hr>):
-  - 3 propostes de titular (màx. 60 caràcters): 1) Periodístic, 2) Google Discover, 3) SEO.
-  - Meta descripció (màx. 140 caràcters).
-  - Posts per a xarxes: Threads i Bluesky (màx. 280 caràcters), Instagram i Facebook (to natural, 3-4 hashtags locals).
+Redacta una notícia periodística d'agenda en català a partir del dossier complet proporcionat. Aprofita al màxim tot el material del dossier (objectiu orientatiu: entre 1.000 i 1.500 paraules si hi ha prou actes). Humanitza el text perquè la lectura sigui natural i fluida. Organitza la informació segons la piràmide invertida.
+
+TRACTAMENT DE LA INFORMACIÓ I PRIORITAT DE FONTS:
+- Mirada periodística: Identifica el fet noticiable principal abans de redactar. Aquest fet ha de marcar l'enfocament del lead i l'ordre de la informació. Mantén un to clar, neutral, rigorós i imparcial. No emetis judicis de valor personals ni utilitzis la primera persona.
+- Base estricta i exhaustivitat: Extreu la màxima informació rellevant del dossier per crear un article profund i complet. Inclou TOTS els actes marcats com a [TAQUILLA (entradas.uepmallorca.app)] i [NOTÍCIA (uepmallorca.app)] que encaixin amb la data i la disciplina, i afegeix TOTS els actes confirmats de les [CARTELLERES DIRECTES (AUDITORIUM I YOUTHING)] i la [PROGRAMACIÓ EXTERNA]. Si un acte apareix a UEP! i també fora, fusiona'l en un sol paràgraf mantenint SEMPRE l'enllaç d'UEP! Mallorca. NO inventis fets, NO facis suposicions i NO afegeixis dades (com preus o horaris) que no figurin al dossier. Descarta qualsevol acte d'Eivissa, Menorca o Formentera.
+- Zero citacions d'altres mitjans: PROHIBIT citar o enllaçar altres mitjans de comunicació o portals culturals externs (mai youthing.es, bonart.cat, Diario de Mallorca, etc.). De youthing.es només s'aprofiten les dades objectives (acte, data, hora, lloc, preu), redactades amb les teves pròpies paraules i sense citar mai la font. Si un acte no té notícia a UEP! Mallorca, remet únicament al nom de la sala, museu o galeria (o a la seva web oficial com auditoriumpalma.com/ca/ si consta al dossier).
+- Estructura: Aplica la piràmide invertida. El primer paràgraf (lead) ha de contenir les 5W (Qui, Què, Quan, On, Per què) de forma directa, obrint amb els protagonistes reals de la jornada o setmana.
+
+ESTIL DE REDACCIÓ:
+- Frases curtes, dinàmiques i fluides.
+- Vocabulari precís i ric, sense adjectius valoratius ni llenguatge administratiu/institucional. Prohibits tòpics com "epicentre de la cultura", "oferta variada", "promet emocionar" o "experiència única".
+- Noms propis, institucions i títols d'obres: mai traduïts ni adaptats; respecta l'original.
+- Integra els enllaços de compra i de notícies d'UEP! de manera natural dins les frases amb <a href="..." target="_blank" rel="noopener noreferrer">...</a>.
+
+SEO I FORMATS (REGLES ESTRICTES):
+- Jerarquia de Subtítols (H2): Divideix el text lògicament en 4 o 5 grans blocs temàtics o geogràfics utilitzant només etiquetes <h2> descriptives que responguin a la intenció de cerca del lector. NO utilitzis H3 ni H4, ni facis un H2 per a cada acte individual.
+- SEO Local i Retenció visual: Aplica negretes (exclusivament amb <strong>...</strong>, mai asteriscos ** ni cites numèriques [1]) únicament a les entitats més importants: noms de persones clau, municipis o espais culturals de Mallorca, i dates rellevants.
+- Densitat de Paraules Clau: Identifica la temàtica principal i assegura't que el concepte clau aparegui de forma natural al primer paràgraf i unes 2 vegades més al llarg del text.
+- NO afegeixis cap caixa ni secció de "Dades pràctiques" al final; integra totes les dades (dia, hora, sala, municipi, preu) dins dels paràgrafs (<p>).
+
+BLOC DE REDACCIÓ AL FINAL (separat per <hr>):
+- Propostes de Titular: Genera 3 opcions de titular (màxim 60 caràcters) que fugin absolutament del to institucional o d'agenda plana però il·lustrin el contingut:
+  1) Purament periodístic.
+  2) Optimitzat per a Google Discover (suggerent, que convidi al clic sense ser clickbait).
+  3) Enfocat en la paraula clau (SEO).
+- Meta descripció: Màxim 140 caràcters incloent la paraula clau principal.
+- Xarxes Socials: Redacta un post adaptat per a Instagram, Facebook, Threads i Bluesky.
+  - Threads i Bluesky: Màxim 280 caràcters, directes i informatius.
+  - Instagram i Facebook: To natural i fluid.
+  - Regla general RRSS: No utilitzis la fórmula "llegeix més" ni un to excessivament promocional. Inclou 3 o 4 etiquetes (hashtags) rellevants i locals.
 
 Retorna ÚNICAMENT HTML net per a WordPress (sense etiquetes <html>, <head> ni <body>).
 """
@@ -436,6 +434,7 @@ Retorna ÚNICAMENT HTML net per a WordPress (sense etiquetes <html>, <head> ni <
     respuesta = client.chat.completions.create(
         model="gpt-4o",
         temperature=0.35,
+        max_tokens=4096,
         messages=[
             {"role": "system", "content": prompt_sistema},
             {"role": "user", "content": dossier}
@@ -447,15 +446,16 @@ Retorna ÚNICAMENT HTML net per a WordPress (sense etiquetes <html>, <head> ni <
 def adaptar_noticia_es(client, html_cat):
     prompt_sistema = """
 Actua com una periodista experimentada d'UEP! Mallorca.
-Fes una adaptació periodística ÍNTEGRA al castellà del següent article en català (sense resumir-lo ni ometre absolutament cap esdeveniment, detall, horari, preu ni enllaç).
+Genera una versió íntegra en castellà de la notícia següent (incloent les 3 opcions de titular de màxim 60 caràcters, la meta descripció de màxim 140 caràcters i els posts per a xarxes socials després de l'<hr>).
 
 REGLES ESTRICTES:
-1. Mantén exactament tots els esdeveniments, tots els enllaços (<a href="..." target="_blank" rel="noopener noreferrer">) i la mateixa estructura de <h2> i <p>.
-2. Respecta els noms propis, espais culturals, festivals i títols originals d'obres sense traduir-los.
-3. PROHIBIT citar o mencionar altres mitjans de comunicació o portals externs (mai "Más información en youthing.es", "bonart.cat" ni similars).
-4. Sense tòpics ("epicentro de la cultura", "oferta variada", "promete emocionar", "visión única") i sense secció de "Datos prácticos".
-5. Utilitza EXCLUSIVAMENT HTML net (<strong> per a negretes, mai asteriscos **).
-6. Adapta també al castellà el bloc final de redacció després de l'<hr> (3 titulars màx. 60 caràcters, meta descripció màx. 140 caràcters i posts per a xarxes socials).
+1. No ha de ser una traducció literal, sinó una adaptació periodística amb el mateix rigor, sense resumir ni ometre absolutament cap esdeveniment, detall, horari, preu ni enllaç (<a href="..." target="_blank" rel="noopener noreferrer">).
+2. Contextualitza lleugerament els conceptes culturals, festivitats o institucions molt locals perquè un lector castellanoparlant no familiaritzat els comprengui, mantenint l'essència original, però EVITA explicacions innecessàries com "Consell de Mallorca (gobierno insular)" o "Xeremiers (gaiteros)".
+3. Respecta els noms propis, espais culturals, festivals i títols originals d'obres sense traduir-los.
+4. Mantén la mateixa estructura de <h2> i <p> (sense H3, H4 ni secció de "Datos prácticos").
+5. PROHIBIT citar o mencionar altres mitjans de comunicació o portals externs (mai "Más información en youthing.es", "bonart.cat" ni similars).
+6. Sense tòpics ni llenguatge administratiu. A les xarxes socials, no utilitzis "lee más" ni un to excessivament promocional, i inclou 3 o 4 hashtags rellevants i locals.
+7. Utilitza EXCLUSIVAMENT HTML net (<strong> per a negretes, mai asteriscos **).
 
 Retorna ÚNICAMENT HTML net per a WordPress (sense etiquetes <html>, <head> ni <body>).
 """
@@ -463,6 +463,7 @@ Retorna ÚNICAMENT HTML net per a WordPress (sense etiquetes <html>, <head> ni <
     respuesta = client.chat.completions.create(
         model="gpt-4o",
         temperature=0.3,
+        max_tokens=4096,
         messages=[
             {"role": "system", "content": prompt_sistema},
             {"role": "user", "content": html_cat}
