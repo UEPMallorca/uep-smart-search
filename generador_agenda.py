@@ -31,7 +31,7 @@ MESOS_ES = {
 }
 
 SALAS_MUSICA_PALMA = [
-    "Es Gremi", "Auditorium de Palma", "Trui Teatre",
+    "Es Gremi", "Auditorium de Palma (auditoriumpalma.com/ca/)", "Trui Teatre",
     "Teatre Principal de Palma", "Teatre Xesc Forteza",
     "Jazz Voyeur Club", "La Movida Cafe Concierto", "CaixaForum Palma",
     "Conservatori Superior de Música"
@@ -47,7 +47,7 @@ SALAS_MUSICA_PART_FORANA = [
 SALAS_TEATRO_PALMA = [
     "Teatre Principal de Palma", "Teatre del Mar", "Teatre Xesc Forteza",
     "Teatre Mar i Terra", "Teatre Sans", "Teatre Municipal Catalina Valls",
-    "Auditorium de Palma", "Trui Teatre", "Sala Assaig"
+    "Auditorium de Palma (auditoriumpalma.com/ca/)", "Trui Teatre", "Sala Assaig"
 ]
 
 SALAS_TEATRO_PART_FORANA = [
@@ -80,7 +80,7 @@ SALAS_EXPOSICIONS_PART_FORANA = [
 ]
 
 ESPAIS_AGENDA_PALMA = [
-    "Teatre Principal de Palma", "Auditorium de Palma", "Es Gremi",
+    "Teatre Principal de Palma", "Auditorium de Palma (auditoriumpalma.com/ca/)", "Es Gremi",
     "Teatre Xesc Forteza", "Teatre del Mar", "Teatre Mar i Terra",
     "Es Baluard", "Casal Solleric", "CaixaForum Palma", "Fundació Miró Mallorca",
     "Art Palma Contemporani", "PalmaCultura"
@@ -294,7 +294,7 @@ Objectiu: recopilar el màxim nombre d'esdeveniments o exposicions CONFIRMATS (i
 
 REGLA ESTRICTA DE FONTS:
 - Prioritza sempre la informació de les webs oficials de les sales, museus, galeries o ajuntaments.
-- PROHIBIT incloure referències, atribucions ni frases com "Més informació a..." apuntant a altres mitjans de comunicació, revistes o portals culturals externs (mai bonart.cat, diariodemallorca, ultimahora, dbalears, arabalears, mallorcadiario, artsmallorca, etc.).
+- PROHIBIT incloure referències, atribucions ni frases com "Més informació a..." apuntant a altres mitjans de comunicació, revistes o portals culturals externs (mai youthing.es, bonart.cat, diariodemallorca, ultimahora, dbalears, arabalears, mallorcadiario, artsmallorca, etc.).
 
 Per a CADA proposta trobada, indica:
 - Nom de l'artista, banda, obra, exposició o companyia.
@@ -305,6 +305,35 @@ Per a CADA proposta trobada, indica:
 No escriguis cap notícia encara, només el dossier verificat. Si d'algun espai no hi ha programació confirmada en aquestes dates, no t'inventis res.
 """
     print(f"Cercant programació externa [{zona}] ({rang_dates})...")
+    response = client.responses.create(
+        model="gpt-4o",
+        tools=[{"type": "web_search"}],
+        input=prompt_cerca
+    )
+    return response.output_text
+
+
+def _fer_cerca_fonts_clau(client, disciplina, rang_dates):
+    prompt_cerca = f"""
+Consulta específicament aquestes dues webs per trobar programació confirmada de {disciplina} a Mallorca {rang_dates}:
+1) https://auditoriumpalma.com/ca/ (web oficial de l'Auditorium de Palma)
+2) https://youthing.es/ (guia d'agenda cultural de Mallorca)
+
+Objectiu: extreure TOTS els esdeveniments o exposicions CONFIRMATS de {disciplina} dins aquestes dates exactes a Mallorca. Descarta qualsevol acte fora de dates o que sigui d'Eivissa, Menorca o Formentera.
+
+REGLES ESTRICTES:
+- De youthing.es, extreu ÚNICAMENT les dades objectives (nom de l'artista/obra/exposició, data, hora, recinte, municipi i preu si consta). NO copiïs textos ni descripcions literals i NO incloguis mai cap enllaç ni menció a youthing.es al dossier.
+- D'auditoriumpalma.com/ca/, pots incloure l'enllaç oficial de l'espectacle o del recinte perquè és la sala oficial.
+
+Per a CADA proposta trobada, indica:
+- Nom de l'artista, banda, obra, exposició o companyia.
+- Data exacta (o dates de vigència) i hora si consta.
+- Sala, museu o galeria i municipi de Mallorca (i preu si consta).
+- Breu síntesi pròpia en 1 o 2 frases.
+
+No escriguis cap notícia encara, només el dossier verificat. Si no hi ha actes confirmats en aquestes dates per a aquesta disciplina, indica-ho sense inventar res.
+"""
+    print(f"Cercant programació a auditoriumpalma.com/ca/ i youthing.es ({rang_dates})...")
     response = client.responses.create(
         model="gpt-4o",
         tools=[{"type": "web_search"}],
@@ -324,10 +353,12 @@ def cercar_agenda_externa(client, tipo, fechas_objetivo):
         d_museus = _fer_cerca_zona(client, disc_expo, rang_dates, "Museus i centres culturals de Palma", MUSEUS_EXPOSICIONS_PALMA)
         d_galeries = _fer_cerca_zona(client, disc_expo, rang_dates, "Galeries d'Art Palma Contemporani", GALERIES_ART_PALMA)
         d_forana = _fer_cerca_zona(client, disc_expo, rang_dates, "la Part Forana de Mallorca", SALAS_EXPOSICIONS_PART_FORANA)
+        d_clau = _fer_cerca_fonts_clau(client, disc_expo, rang_dates)
         return (
             f"--- MUSEUS DE PALMA ---\n{d_museus}\n\n"
             f"--- GALERIES ART PALMA CONTEMPORANI ---\n{d_galeries}\n\n"
-            f"--- PART FORANA ---\n{d_forana}"
+            f"--- PART FORANA ---\n{d_forana}\n\n"
+            f"--- AUDITORIUM I AGENDA COMPLEMENTÀRIA ---\n{d_clau}"
         )
 
     if tipo == "conciertos_semana":
@@ -345,8 +376,13 @@ def cercar_agenda_externa(client, tipo, fechas_objetivo):
 
     dossier_palma = _fer_cerca_zona(client, disciplina, rang_dates, "Palma", sales_palma)
     dossier_forana = _fer_cerca_zona(client, disciplina, rang_dates, "la Part Forana de Mallorca", sales_forana)
+    dossier_clau = _fer_cerca_fonts_clau(client, disciplina, rang_dates)
 
-    return f"--- PALMA ---\n{dossier_palma}\n\n--- PART FORANA ---\n{dossier_forana}"
+    return (
+        f"--- PALMA ---\n{dossier_palma}\n\n"
+        f"--- PART FORANA ---\n{dossier_forana}\n\n"
+        f"--- AUDITORIUM I AGENDA COMPLEMENTÀRIA ---\n{dossier_clau}"
+    )
 
 
 def redactar_noticia_cat(client, eventos, instruccion_filtro, dossier_externo=""):
@@ -378,7 +414,7 @@ REGLES INNEGOCIABLES:
   - Has d'incloure TOTS i CADA UN dels esdeveniments marcats com a [TAQUILLA (entradas.uepmallorca.app)] i [NOTÍCIA (uepmallorca.app)] que encaixin amb la data i la disciplina demanada. NO n'ometis ni un sol ni els resumeixis en excés.
   - Afegeix també TOTS els actes rellevants procedents de [PROGRAMACIÓ EXTERNA DE SALES DE REFERÈNCIA A MALLORCA] que tinguin lloc o estiguin vigents en el rang de dates objectiu.
   - Si un mateix esdeveniment apareix a TAQUILLA/NOTÍCIA d'UEP! i també a la PROGRAMACIÓ EXTERNA, fusiona la informació en un sol paràgraf sense repetir-lo i mantén SEMPRE l'enllaç d'UEP! Mallorca.
-  - PROHIBIT CITAR O ENLLAÇAR ALTRES MITJANS DE COMUNICACIÓ O PORTALS CULTURALS EXTERNS: no escriguis mai "Més informació a bonart.cat", "segons Diario de Mallorca", ni esmentis cap altre diari, revista o agenda externa. Si un acte no té notícia a UEP! Mallorca, remet únicament al nom del museu, sala o galeria (o a la seva web oficial si apareix verificada al dossier). No inventis mai enllaços.
+  - PROHIBIT CITAR O ENLLAÇAR ALTRES MITJANS DE COMUNICACIÓ O PORTALS CULTURALS EXTERNS: no escriguis mai "Més informació a youthing.es", "Més informació a bonart.cat", "segons Diario de Mallorca", ni esmentis cap altre diari, revista o agenda externa. Si un acte no té notícia a UEP! Mallorca, remet únicament al nom del museu, sala o galeria (o a la seva web oficial si apareix verificada al dossier). No inventis mai enllaços.
 2. ZERO TÒPICS, ZERO CLIXÉS I ZERO ARRANCS REPETITIUS:
   - ESTÀ TERMINANTMENT PROHIBIT utilitzar expressions buides com "es converteix en l'epicentre de la cultura", "epicentre cultural", "amb una oferta variada", "promet emocionar", "una experiència única", "no es pot perdre" o "farà gaudir al públic".
   - Obre el primer paràgraf (lead) directament amb els protagonistes reals de la setmana (artistes, bandes, obres, exposicions o espais concrets), integrant les 5W de forma natural.
@@ -416,7 +452,7 @@ Fes una adaptació periodística ÍNTEGRA al castellà del següent article en c
 REGLES ESTRICTES:
 1. Mantén exactament tots els esdeveniments, tots els enllaços (<a href="..." target="_blank" rel="noopener noreferrer">) i la mateixa estructura de <h2> i <p>.
 2. Respecta els noms propis, espais culturals, festivals i títols originals d'obres sense traduir-los.
-3. PROHIBIT citar o mencionar altres mitjans de comunicació o portals externs (mai "Más información en bonart.cat" ni similars).
+3. PROHIBIT citar o mencionar altres mitjans de comunicació o portals externs (mai "Más información en youthing.es", "bonart.cat" ni similars).
 4. Sense tòpics ("epicentro de la cultura", "oferta variada", "promete emocionar", "visión única") i sense secció de "Datos prácticos".
 5. Utilitza EXCLUSIVAMENT HTML net (<strong> per a negretes, mai asteriscos **).
 6. Adapta també al castellà el bloc final de redacció després de l'<hr> (3 titulars màx. 60 caràcters, meta descripció màx. 140 caràcters i posts per a xarxes socials).
