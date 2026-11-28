@@ -21,6 +21,18 @@ TITULOS_IGNORAR = [
     "presentacions de llibres", "esborrany", "borrador"
 ]
 
+PALABRAS_LITERATURA = [
+    "llibre", "llibres", "libro", "libros", "novel·la", "novela",
+    "poesia", "poesía", "poemari", "poemario", "assaig", "ensayo",
+    "editorial", "edicions", "llibreria", "librería", "escriptor",
+    "escriptora", "escritor", "escritora", "literatura", "literari",
+    "literària", "literaria", "relats", "relatos", "còmic", "cómic",
+    "novel·la gràfica", "novela gráfica", "club de lectura",
+    "recital poètic", "recital poético", "rata corner", "quart creixent",
+    "drac màgic", "mallorca literària", "lleonard muntaner",
+    "documenta balear", "el gall editor", "adia edicions", "nova editorial moll"
+]
+
 MESOS_CAT = {
     1: "gener", 2: "febrer", 3: "març", 4: "abril", 5: "maig", 6: "juny",
     7: "juliol", 8: "agost", 9: "setembre", 10: "octubre", 11: "novembre", 12: "desembre"
@@ -85,8 +97,7 @@ LLIBRERIES_I_CENTRES_PALMA = [
     "Llibreria Drac Màgic (llibreriadracmagic.com)", "Llibreria Embat",
     "Ínsula Literària", "Literanta", "La Biblioteca de Babel", "Finis Africae",
     "Ámbito Cultural El Corte Inglés Palma", "Can Alcover (OCB)",
-    "Biblioteca Pública de Palma Can Sales", "Biblioteques de Palma (Bibliopalma)",
-    "La Misericòrdia", "CaixaForum Palma", "Centre de Cultura Sa Nostra"
+    "Biblioteca Pública de Palma Can Sales", "Biblioteques de Palma (Bibliopalma)"
 ]
 
 ESPAIS_LITERATURA_PART_FORANA = [
@@ -94,7 +105,6 @@ ESPAIS_LITERATURA_PART_FORANA = [
     "Casa Museu Llorenç Villalonga (Binissalem)", "Museu de la Paraula (Sant Joan)",
     "Casa Blai Bonet (Santanyí)", "Institució Pública Antoni M. Alcover (Manacor)",
     "Llibreria Món de Llibres (Manacor)", "Casal de Cultura Can Gelabert (Binissalem)",
-    "Fundació Toni Catany (Llucmajor)", "Can Planes (sa Pobla)",
     "Biblioteques municipals d'Inca, Manacor, Pollença, Sóller, Felanitx i Alcúdia"
 ]
 
@@ -122,6 +132,11 @@ ESPAIS_AGENDA_PART_FORANA = [
 def es_de_mallorca(evento):
     texto = f"{evento.get('titol', '')} {evento.get('resum', '')} {evento.get('enllac', '')}".lower()
     return not any(re.search(rf"\b{re.escape(p)}\b", texto) for p in PALABRAS_EXCLUIDAS)
+
+
+def es_de_literatura(evento):
+    texto = f"{evento.get('titol', '')} {evento.get('resum', '')}".lower()
+    return any(p in texto for p in PALABRAS_LITERATURA)
 
 
 def es_agenda_previa(evento):
@@ -173,13 +188,15 @@ def extraer_ficha_web(url, max_chars=2500):
 
 def extreure_cartelleres_directes(tipo):
     """Llegeix directament l'HTML de webs clau segons el tipus d'agenda."""
-    fonts = [
-        ("YOUTHING (només dades objectives, PROHIBIT citar o enllaçar youthing.es)", "https://youthing.es/"),
-    ]
     if tipo == "literatura_semana":
-        fonts.insert(0, ("FUNDACIÓ MALLORCA LITERÀRIA (web oficial: https://www.mallorcaliteraria.cat/ca/agenda)", "https://www.mallorcaliteraria.cat/ca/agenda"))
+        fonts = [
+            ("FUNDACIÓ MALLORCA LITERÀRIA (web oficial: https://www.mallorcaliteraria.cat/ca/agenda)", "https://www.mallorcaliteraria.cat/ca/agenda"),
+        ]
     else:
-        fonts.insert(0, ("AUDITORIUM DE PALMA (web oficial: https://auditoriumpalma.com/ca/)", "https://auditoriumpalma.com/ca/"))
+        fonts = [
+            ("AUDITORIUM DE PALMA (web oficial: https://auditoriumpalma.com/ca/)", "https://auditoriumpalma.com/ca/"),
+            ("YOUTHING (només dades objectives, PROHIBIT citar o enllaçar youthing.es)", "https://youthing.es/"),
+        ]
         if tipo in ("sabado", "domingo"):
             fonts.append(("FUNDACIÓ MALLORCA LITERÀRIA (web oficial: https://www.mallorcaliteraria.cat/ca/agenda)", "https://www.mallorcaliteraria.cat/ca/agenda"))
 
@@ -253,15 +270,15 @@ def configurar_formato(tipo):
     elif tipo == "literatura_semana":
         fechas = [hoy + timedelta(days=i) for i in range(7)]
         return (
-            f"Agenda literària de la setmana a Mallorca ({fechas[0].strftime('%d/%m')} - {fechas[-1].strftime('%d/%m/%Y')})",
-            f"Agenda literaria de la semana en Mallorca ({fechas[0].strftime('%d/%m')} - {fechas[-1].strftime('%d/%m/%Y')})",
-            f"Selecciona ÚNICAMENT presentacions de llibres, recitals poètics, clubs de lectura, xerrades literàries i signatures d'autors a Mallorca entre el {fechas[0].strftime('%d/%m/%Y')} i el {fechas[-1].strftime('%d/%m/%Y')}. Descarta concerts, teatre, exposicions no literàries i qualsevol acte de Menorca o Eivissa.",
+            f"Presentacions de llibres i agenda literària a Mallorca ({fechas[0].strftime('%d/%m')} - {fechas[-1].strftime('%d/%m/%Y')})",
+            f"Presentaciones de libros y agenda literaria en Mallorca ({fechas[0].strftime('%d/%m')} - {fechas[-1].strftime('%d/%m/%Y')})",
+            f"Selecciona EXCLUSIVAMENT presentacions de llibres, signatures d'autors, recitals poètics, clubs de lectura i xerrades literàries a Mallorca entre el {fechas[0].strftime('%d/%m/%Y')} i el {fechas[-1].strftime('%d/%m/%Y')}. DESCARTA RADICALMENT qualsevol obra de teatre, concert, exposició o acte que no sigui literari (encara que surti al dossier d'UEP!).",
             fechas
         )
     raise ValueError("Tipus no vàlid")
 
 
-def cargar_noticias_recientes_wp(fechas_objetivo):
+def cargar_noticias_recientes_wp(fechas_objetivo, tipo):
     """Consulta en directe les darreres notícies publicades a uepmallorca.app (incloent les d'avui mateix)."""
     enriquecidos_wp = []
     try:
@@ -282,6 +299,8 @@ def cargar_noticias_recientes_wp(fechas_objetivo):
 
             if es_agenda_previa(candidato) or not es_de_mallorca(candidato):
                 continue
+            if tipo == "literatura_semana" and not es_de_literatura(candidato):
+                continue
             if coincide_fecha(candidato, fechas_objetivo):
                 print(f"Llegint [NOTÍCIA RECENT UEP!]: {titol} -> {enllac}")
                 enriquecidos_wp.append({
@@ -296,8 +315,8 @@ def cargar_noticias_recientes_wp(fechas_objetivo):
     return enriquecidos_wp
 
 
-def cargar_eventos_enriquecidos(fechas_objetivo):
-    enriquecidos = cargar_noticias_recientes_wp(fechas_objetivo)
+def cargar_eventos_enriquecidos(fechas_objetivo, tipo):
+    enriquecidos = cargar_noticias_recientes_wp(fechas_objetivo, tipo)
     urls_vistes = {ev["enllac"].rstrip("/") for ev in enriquecidos if ev.get("enllac")}
 
     try:
@@ -306,18 +325,28 @@ def cargar_eventos_enriquecidos(fechas_objetivo):
     except FileNotFoundError:
         datos = []
 
-    entradas = [
-        a for a in datos
-        if a.get("tipus") == "entrada" and es_de_mallorca(a) and coincide_fecha(a, fechas_objetivo)
-    ]
-
-    noticias = [
-        a for a in datos
-        if a.get("tipus") != "entrada"
-        and not es_agenda_previa(a)
-        and es_de_mallorca(a)
-        and coincide_fecha(a, fechas_objetivo)
-    ]
+    if tipo == "literatura_semana":
+        entradas = []
+        noticias = [
+            a for a in datos
+            if a.get("tipus") != "entrada"
+            and not es_agenda_previa(a)
+            and es_de_mallorca(a)
+            and es_de_literatura(a)
+            and coincide_fecha(a, fechas_objetivo)
+        ]
+    else:
+        entradas = [
+            a for a in datos
+            if a.get("tipus") == "entrada" and es_de_mallorca(a) and coincide_fecha(a, fechas_objetivo)
+        ]
+        noticias = [
+            a for a in datos
+            if a.get("tipus") != "entrada"
+            and not es_agenda_previa(a)
+            and es_de_mallorca(a)
+            and coincide_fecha(a, fechas_objetivo)
+        ]
 
     seleccion = entradas[:35] + noticias[:25]
 
@@ -340,13 +369,21 @@ def cargar_eventos_enriquecidos(fechas_objetivo):
     return enriquecidos
 
 
-def _fer_cerca_zona(client, disciplina, rang_dates, zona, llista_sales):
+def _fer_cerca_zona(client, disciplina, rang_dates, zona, llista_sales, nomes_literatura=False):
     salas_str = ", ".join(llista_sales)
+    restriccio_extra = ""
+    if nomes_literatura:
+        restriccio_extra = """
+FILTRE LITERARI ESTRICTE:
+- Cerca EXCLUSIVAMENT presentacions de llibres, signatures d'autors, recitals poètics, clubs de lectura i xerrades sobre llibres.
+- PROHIBIT incloure obres de teatre, concerts, exposicions d'art o altres actes culturals encara que es facin al mateix centre cultural. Si no trobes prou presentacions de llibres confirmades, retorna només les que sí que siguin 100% de llibres i literatura.
+"""
+
     prompt_cerca = f"""
 Fes una cerca exhaustiva a internet de la programació confirmada de {disciplina} a {zona} (Mallorca) {rang_dates}.
 Revisa especialment les webs oficials d'aquests espais culturals: {salas_str}.
-
-Objectiu: recopilar el màxim nombre d'esdeveniments CONFIRMATS (idealment entre 10 i 15 propostes diferents) programats dins aquestes dates exactes. Descarta qualsevol acte d'Eivissa, Menorca o Formentera, i qualsevol proposta ja finalitzada o fora del rang indicat.
+{restriccio_extra}
+Objectiu: recopilar esdeveniments CONFIRMATS programats dins aquestes dates exactes. Descarta qualsevol acte d'Eivissa, Menorca o Formentera, i qualsevol proposta ja finalitzada o fora del rang indicat.
 
 REGLA ESTRICTA DE FONTS:
 - Prioritza sempre la informació de les webs oficials de les llibreries, sales, museus, galeries, editorials o ajuntaments.
@@ -378,13 +415,13 @@ def cercar_agenda_externa(client, tipo, fechas_objetivo):
     cartelleres_directes = extreure_cartelleres_directes(tipo)
 
     if tipo == "literatura_semana":
-        disc_lit = "presentacions de llibres, recitals poètics, xerrades literàries, signatures d'autors i clubs de lectura"
-        d_palma = _fer_cerca_zona(client, disc_lit, rang_dates, "Llibreries i centres culturals de Palma", LLIBRERIES_I_CENTRES_PALMA)
-        d_forana = _fer_cerca_zona(client, disc_lit, rang_dates, "Part Forana de Mallorca i Fundació Mallorca Literària", ESPAIS_LITERATURA_PART_FORANA)
-        d_edit = _fer_cerca_zona(client, disc_lit, rang_dates, "Editorials de Mallorca", EDITORIALS_MALLORCA)
+        disc_lit = "presentacions de llibres, signatures d'autors, recitals poètics i clubs de lectura"
+        d_palma = _fer_cerca_zona(client, disc_lit, rang_dates, "Llibreries i biblioteques de Palma", LLIBRERIES_I_CENTRES_PALMA, nomes_literatura=True)
+        d_forana = _fer_cerca_zona(client, disc_lit, rang_dates, "Part Forana de Mallorca i Fundació Mallorca Literària", ESPAIS_LITERATURA_PART_FORANA, nomes_literatura=True)
+        d_edit = _fer_cerca_zona(client, disc_lit, rang_dates, "Presentacions de llibres d'editorials de Mallorca", EDITORIALS_MALLORCA, nomes_literatura=True)
         return (
-            f"--- CARTELLERES DIRECTES (MALLORCA LITERÀRIA I YOUTHING) ---\n{cartelleres_directes}\n\n"
-            f"--- LLIBRERIES I CENTRES DE PALMA ---\n{d_palma}\n\n"
+            f"--- CARTELLERA DIRECTA MALLORCA LITERÀRIA ---\n{cartelleres_directes}\n\n"
+            f"--- LLIBRERIES I BIBLIOTEQUES DE PALMA ---\n{d_palma}\n\n"
             f"--- PART FORANA ---\n{d_forana}\n\n"
             f"--- EDITORIALS MALLORQUINES ---\n{d_edit}"
         )
@@ -448,11 +485,11 @@ Actua com una periodista jove, feminista i experimentada de la secció de cultur
 Avui és {fecha_hoy}.
 OBJECTIU: {instruccion_filtro}
 
-Redacta una notícia periodística d'agenda en català a partir del dossier complet proporcionat. Aprofita al màxim tot el material del dossier (objectiu orientatiu: entre 1.000 i 1.500 paraules si hi ha prou actes). Humanitza el text perquè la lectura sigui natural i fluida. Organitza la informació segons la piràmide invertida.
+Redacta una notícia periodística d'agenda en català a partir del dossier complet proporcionat. Aprofita al màxim tot el material del dossier que encaixi ESTRICTAMENT amb la disciplina i les dates demanades. Humanitza el text perquè la lectura sigui natural i fluida. Organitza la informació segons la piràmide invertida.
 
 TRACTAMENT DE LA INFORMACIÓ I PRIORITAT DE FONTS:
 - Mirada periodística: Identifica el fet noticiable principal abans de redactar. Aquest fet ha de marcar l'enfocament del lead i l'ordre de la informació. Mantén un to clar, neutral, rigorós i imparcial. No emetis judicis de valor personals ni utilitzis la primera persona.
-- Base estricta i exhaustivitat: Extreu la màxima informació rellevant del dossier per crear un article profund i complet. Inclou TOTS els actes marcats com a [TAQUILLA (entradas.uepmallorca.app)] i [NOTÍCIA (uepmallorca.app)] que encaixin amb la data i la disciplina, i afegeix TOTS els actes confirmats de les [CARTELLERES DIRECTES] i la [PROGRAMACIÓ EXTERNA]. Si un acte apareix a UEP! i també fora, fusiona'l en un sol paràgraf mantenint SEMPRE l'enllaç d'UEP! Mallorca. NO inventis fets, NO facis suposicions i NO afegeixis dades (com preus o horaris) que no figurin al dossier. Descarta qualsevol acte d'Eivissa, Menorca o Formentera.
+- Base estricta i rigor temàtic: Inclou TOTS els actes marcats com a [TAQUILLA (entradas.uepmallorca.app)] i [NOTÍCIA (uepmallorca.app)] que encaixin ESTRICTAMENT amb la data i la disciplina demanada, i afegeix TOTS els actes confirmats de les [CARTELLERES DIRECTES] i la [PROGRAMACIÓ EXTERNA] que també hi encaixin. Si un acte del dossier NO pertany a la disciplina demanada, DESCARTA'L COMPLETAMENT encara que l'article quedi més curt. Si un acte apareix a UEP! i també fora, fusiona'l en un sol paràgraf mantenint SEMPRE l'enllaç d'UEP! Mallorca. NO inventis fets, NO facis suposicions i NO afegeixis dades (com preus o horaris) que no figurin al dossier. Descarta qualsevol acte d'Eivissa, Menorca o Formentera.
 - Zero citacions d'altres mitjans: PROHIBIT citar o enllaçar altres mitjans de comunicació o portals culturals externs (mai youthing.es, bonart.cat, Diario de Mallorca, etc.). De youthing.es només s'aprofiten les dades objectives (acte, data, hora, lloc, preu), redactades amb les teves pròpies paraules i sense citar mai la font. Si un acte no té notícia a UEP! Mallorca, remet únicament al nom de la llibreria, biblioteca, sala, museu o galeria (o a la seva web oficial si consta al dossier).
 - Estructura: Aplica la piràmide invertida. El primer paràgraf (lead) ha de contenir les 5W (Qui, Què, Quan, On, Per què) de forma directa, obrint amb els protagonistes reals de la jornada o setmana.
 
@@ -463,7 +500,7 @@ ESTIL DE REDACCIÓ:
 - Integra els enllaços de compra i de notícies d'UEP! de manera natural dins les frases amb <a href="..." target="_blank" rel="noopener noreferrer">...</a>.
 
 SEO I FORMATS (REGLES ESTRICTES):
-- Jerarquia de Subtítols (H2): Divideix el text lògicament en 4 o 5 grans blocs temàtics o geogràfics utilitzant només etiquetes <h2> descriptives que responguin a la intenció de cerca del lector. NO utilitzis H3 ni H4, ni facis un H2 per a cada acte individual.
+- Jerarquia de Subtítols (H2): Divideix el text lògicament en grans blocs temàtics o geogràfics utilitzant només etiquetes <h2> descriptives que responguin a la intenció de cerca del lector. NO utilitzis H3 ni H4, ni facis un H2 per a cada acte individual.
 - SEO Local i Retenció visual: Aplica negretes (exclusivament amb <strong>...</strong>, mai asteriscos ** ni cites numèriques [1]) únicament a les entitats més importants: noms de persones clau, municipis o espais culturals de Mallorca, i dates rellevants.
 - Densitat de Paraules Clau: Identifica la temàtica principal i assegura't que el concepte clau aparegui de forma natural al primer paràgraf i unes 2 vegades més al llarg del text.
 - NO afegeixis cap caixa ni secció de "Dades pràctiques" al final; integra totes les dades (dia, hora, sala, municipi, preu) dins dels paràgrafs (<p>).
@@ -553,7 +590,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     titulo_cat, titulo_es, instruccion, fechas = configurar_formato(args.tipus)
-    eventos = cargar_eventos_enriquecidos(fechas)
+    eventos = cargar_eventos_enriquecidos(fechas, args.tipus)
     client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
     dossier_externo = cercar_agenda_externa(client, args.tipus, fechas)
 
